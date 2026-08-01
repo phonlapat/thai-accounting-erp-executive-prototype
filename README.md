@@ -6,9 +6,11 @@ An interactive Thai-language executive workbench for exploring accounting and ER
 
 [Open the interactive demo](https://phonlapat.github.io/thai-accounting-erp-executive-prototype/)
 
-All records are fictional demonstration data. Changes are stored only in the current browser through `localStorage`; use **รีเซ็ตข้อมูลตัวอย่าง** to restore the original sample.
+All records are fictional demonstration data. Choose **ทดลองใช้ทันที** on the sign-in screen to enter. Changes are stored only in the current browser; use **รีเซ็ต** to restore the original sample.
 
 > Prototype notice: this project is intended for interface and workflow exploration. It is not production accounting software and should not be used for tax filing, payroll calculation, or financial reporting.
+
+The sign-in screen is also a prototype. It stores only a temporary browser session and is not connected to a production identity provider or permission system.
 
 ## Run locally
 
