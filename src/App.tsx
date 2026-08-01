@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertCircleIcon, BarChart3Icon, BookOpenIcon, Building2Icon, BoxesIcon, CheckCircle2Icon, ChevronsLeftIcon,
-  ChevronsRightIcon, ClipboardCheckIcon, FileTextIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon, LockIcon,
-  MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShoppingCartIcon, UsersIcon, WalletIcon, XIcon } from
+  ChevronsRightIcon, ClipboardCheckIcon, FileTextIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
+  LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShoppingCartIcon, UsersIcon, WalletIcon, XIcon } from
 'lucide-react';
 import {
   MONTH, STATUS, TODAY, WH, baseOf, dateTH, docStatus, dueOf, monthTH, netOf, num, payTotals, thb, vatOf, whtOf } from
@@ -62,19 +62,19 @@ const CORE: Mod[] = [
   id: 'dashboard', th: 'ภาพรวมผู้บริหาร', en: 'Dashboard', group: 'ภาพรวม', icon: LayoutDashboardIcon,
   desc: 'ฐานะการเงิน งานค้าง และความเคลื่อนไหวขององค์กรในหน้าเดียว',
   kpis: (d) => [
-  { label: 'เงินสดและเงินฝาก', sub: 'Cash', value: thb(cash(d), true), tone: 'info' },
-  { label: 'ลูกหนี้คงค้าง', sub: 'AR', value: thb(ar(d), true) },
-  { label: 'เจ้าหนี้คงค้าง', sub: 'AP', value: thb(ap(d), true), tone: 'warn' },
-  { label: 'กำไรสุทธิสะสม', sub: 'Net profit', value: thb(pl(d).net, true), tone: pl(d).net >= 0 ? 'ok' : 'bad' },
-  { label: 'งานค้างอนุมัติ', sub: 'Approvals', value: `${pendingList(d).length} รายการ`, tone: pendingList(d).length ? 'warn' : 'ok' }],
+  { label: 'เงินสด', value: thb(cash(d), true), tone: 'info' },
+  { label: 'ลูกหนี้', value: thb(ar(d), true) },
+  { label: 'เจ้าหนี้', value: thb(ap(d), true), tone: 'warn' },
+  { label: 'กำไรสุทธิ', value: thb(pl(d).net, true), tone: pl(d).net >= 0 ? 'ok' : 'bad' },
+  { label: 'รออนุมัติ', value: `${pendingList(d).length} รายการ`, tone: pendingList(d).length ? 'warn' : 'ok' }],
 
   panels: (d, a) => {
-    const s = series(d);
+    const s = series(d).slice(-3);
     const max = Math.max(...s.map((x) => Math.max(x.revenue, x.expense)), 1);
     const p = pl(d);
     return [
     {
-      title: 'รายได้และค่าใช้จ่ายรายเดือน', sub: 'Revenue vs. expense (5 เดือนล่าสุด)', wide: true,
+      title: 'รายได้และค่าใช้จ่าย', wide: true,
       bars: s.flatMap((x) => [
       { label: `${monthTH(x.month)} · รายได้`, note: thb(x.revenue, true), value: x.revenue, max, tone: 'info' as Tone },
       { label: `${monthTH(x.month)} · ค่าใช้จ่าย`, note: `${thb(x.expense, true)} · กำไร ${thb(x.profit, true)}`, value: x.expense, max, tone: 'warn' as Tone }]
@@ -82,15 +82,15 @@ const CORE: Mod[] = [
       rows: [['รายได้รวม', thb(p.totalRev)], ['ต้นทุนและค่าใช้จ่าย', thb(p.cogs + p.totalExp)], ['กำไรสุทธิ', thb(p.net), true]] as Array<[string, string, boolean?]>
     },
     {
-      title: 'รอการอนุมัติ', sub: `${pendingList(d).length} รายการในกล่องอนุมัติ`,
+      title: 'รออนุมัติ', wide: true,
       lines: pendingList(d).slice(0, 4).map((x) => ({
-        left: x.title, sub: `${x.refNo} · ${x.requester} · ${dateTH(x.date)}`, right: thb(x.amount),
+        left: x.title, sub: `${x.refNo} · ${dateTH(x.date)}`, right: thb(x.amount),
         actions: [{ label: 'อนุมัติ', run: () => a.decide(x.id, true) }, { label: 'ไม่อนุมัติ', run: () => a.decide(x.id, false), danger: true }]
       })),
       empty: 'ไม่มีรายการค้างอนุมัติ'
     },
     {
-      title: 'ลูกหนี้เกินกำหนด', sub: 'Overdue receivables',
+      title: 'ลูกหนี้เกินกำหนด',
       lines: overdueList(d).slice(0, 5).map((x) => ({
         left: `${x.no} · ${contactName(d, x.contactId)}`,
         sub: `เกินกำหนด ${Math.floor((Date.parse(TODAY) - Date.parse(x.due)) / 864e5)} วัน`, tone: 'bad' as Tone, right: thb(dueOf(x))
@@ -98,18 +98,10 @@ const CORE: Mod[] = [
       empty: 'ไม่มีลูกหนี้เกินกำหนด'
     },
     {
-      title: 'เงินสดคงเหลือตามบัญชี', sub: 'Cash & bank balances', wide: true,
-      lines: d.bankAccts.map((b) => ({ left: b.nameTh, sub: `${b.bank} · ${b.no}`, right: thb(cashOf(d, b.id)) }))
-    },
-    {
-      title: 'สินค้าต่ำกว่าจุดสั่งซื้อ', sub: 'Reorder alerts',
-      lines: lowStock(d).map((p2) => ({ left: `${p2.code} · ${p2.nameTh}`, sub: `คงเหลือ ${num(stockOf(p2))} / จุดสั่งซื้อ ${num(p2.reorder)}`, tone: 'bad' as Tone, status: 'low' })),
+      title: 'สต๊อกใกล้หมด',
+      lines: lowStock(d).map((p2) => ({ left: `${p2.code} · ${p2.nameTh}`, sub: `เหลือ ${num(stockOf(p2))} · ขั้นต่ำ ${num(p2.reorder)}`, tone: 'bad' as Tone, status: 'low' })),
       empty: 'สต๊อกทุกรายการอยู่ในระดับปกติ',
       note: `มูลค่าสินค้าคงคลังรวม ${thb(invValue(d))}`
-    },
-    {
-      title: 'ความเคลื่อนไหวล่าสุด', sub: 'Audit trail', wide: true,
-      lines: d.activities.slice(0, 6).map((x) => ({ left: x.text, sub: `${x.actor} · ${x.module} · ${x.at}` }))
     }];
 
   }
@@ -132,7 +124,7 @@ const CORE: Mod[] = [
   { key: 'status', label: 'สถานะ', options: opts(d.docs.filter((x) => x.kind !== 'po' && x.kind !== 'bill').map((x) => docStatus(x))) }],
 
   actions: (r, a) => {
-    if (r.kind === 'quote' && r.status !== 'converted') return [{ label: 'แปลงเป็นใบแจ้งหนี้', run: () => a.convertQuote(r.id) }];
+    if (r.kind === 'quote' && r.status !== 'converted') return [{ label: 'สร้างใบแจ้งหนี้', run: () => a.convertQuote(r.id) }];
     if (r.kind === 'invoice' && N(r.out) > 0.5) return [{ label: 'รับชำระ', run: () => a.receivePayment(r.id) }];
     return [];
   }
@@ -155,9 +147,9 @@ const CORE: Mod[] = [
   { key: 'status', label: 'สถานะ', options: opts(d.docs.filter((x) => x.kind === 'po' || x.kind === 'bill').map((x) => x.status)) }],
 
   actions: (r, a) => {
-    if (r.kind === 'po' && r.received === 'n' && r.status !== 'converted') return [{ label: 'รับสินค้าเข้าคลัง', run: () => a.receivePO(r.id) }];
-    if (r.kind === 'po' && r.received === 'y' && r.status !== 'converted') return [{ label: 'ตั้งหนี้เป็นบิลซื้อ', run: () => a.billFromPO(r.id) }];
-    if (r.kind === 'bill' && r.status !== 'pending' && N(r.out) > 0.5) return [{ label: 'จ่ายชำระ', run: () => a.payBill(r.id) }];
+    if (r.kind === 'po' && r.received === 'n' && r.status !== 'converted') return [{ label: 'รับสินค้า', run: () => a.receivePO(r.id) }];
+    if (r.kind === 'po' && r.received === 'y' && r.status !== 'converted') return [{ label: 'สร้างบิล', run: () => a.billFromPO(r.id) }];
+    if (r.kind === 'bill' && r.status !== 'pending' && N(r.out) > 0.5) return [{ label: 'จ่ายเงิน', run: () => a.payBill(r.id) }];
     return [];
   }
 },
@@ -188,7 +180,7 @@ const CORE: Mod[] = [
   filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(d.expenses.map((e) => e.status)) }],
   actions: (r, a) => {
     if (r.status === 'draft') return [{ label: 'ส่งอนุมัติ', run: () => a.submitExpense(r.id) }];
-    if (r.status === 'approved') return [{ label: 'จ่ายคืนพนักงาน', run: () => a.payExpense(r.id) }];
+    if (r.status === 'approved') return [{ label: 'จ่ายคืน', run: () => a.payExpense(r.id) }];
     return [];
   }
 },
@@ -305,7 +297,7 @@ const MASTER: Mod[] = [
   })),
   filters: () => [{ key: 'status', label: 'สถานะสต๊อก', options: opts(['low', 'healthy']) }],
   panels: (d) => [{
-    title: 'ใบสั่งซื้อที่รอรับของ', sub: 'Inbound purchase orders', wide: true,
+    title: 'ใบสั่งซื้อรอรับของ', wide: true,
     lines: d.docs.filter((x) => x.kind === 'po' && !x.received).map((x) => ({
       left: `${x.no} · ${contactName(d, x.contactId)}`,
       sub: `${WH.find((w) => w.id === x.wh)?.name ?? '—'} · ${num(x.qty ?? 0)} หน่วย · ครบกำหนด ${dateTH(x.due)}`,
@@ -332,7 +324,7 @@ const MASTER: Mod[] = [
     Array<[string, string, boolean?]>,
     action: { label: `กระทบยอดถึง ${dateTH(TODAY)}`, run: () => a.reconcile(b.id) }
   })),
-  title: 'รายการเดินบัญชี', sub: 'Bank reconciliation — จับคู่กับเอกสารที่ยอดใกล้เคียงที่สุด',
+  title: 'รายการธนาคาร',
   cols: [
   { key: 'date', header: 'วันที่', fmt: 'date' },
   { key: 'account', header: 'บัญชี', hide: 'sm' },
@@ -350,8 +342,8 @@ const MASTER: Mod[] = [
   { key: 'status', label: 'สถานะ', options: opts(['matched', 'unmatched']) }],
 
   actions: (r, a) => r.status === 'matched' ?
-  [{ label: 'ยกเลิกจับคู่', run: () => a.unmatchTxn(r.id) }] :
-  [{ label: 'จับคู่เอกสาร', run: () => a.matchTxn(r.id) }]
+  [{ label: 'ยกเลิก', run: () => a.unmatchTxn(r.id) }] :
+  [{ label: 'จับคู่', run: () => a.matchTxn(r.id) }]
 },
 {
   id: 'accounting', th: 'บัญชีแยกประเภท', en: 'Accounting', group: 'บัญชีและภาษี', icon: BookOpenIcon,
@@ -375,19 +367,19 @@ const MASTER: Mod[] = [
 
     return [
     {
-      title: 'ปิดงวดบัญชีประจำเดือน', sub: `Month-end close · ปิดงวดแล้วถึง ${dateTH(d.settings.closedThrough)}`, wide: true,
+      title: 'ปิดงวด', sub: `ปิดแล้วถึง ${dateTH(d.settings.closedThrough)}`, wide: true,
       lines: checks.map((c) => ({ left: c.left, sub: c.hint, status: c.ok ? 'posted' : 'pending' })),
       action: { label: `ปิดงวดถึง ${dateTH(TODAY)}`, run: a.closeMonth, disabled: checks.some((c) => !c.ok) },
       note: 'ต้องเคลียร์รายการค้างให้ครบก่อนจึงจะปิดงวดได้ — เป็นการควบคุมภายในก่อนออกงบการเงิน'
     },
     {
-      title: 'งบทดลองย่อ', sub: 'Trial balance',
+      title: 'งบทดลอง',
       rows: [['ยอดเดบิตรวม', thb(debit)], ['ยอดเครดิตรวม', thb(credit)], ['ผลต่าง', thb(debit - credit), true]] as Array<[string, string, boolean?]>,
       note: 'คำนวณจากยอดยกมาบวกความเคลื่อนไหวของรายการที่ผ่านรายการแล้ว'
     }];
 
   },
-  title: 'สมุดรายวัน', sub: 'General journal — สร้างอัตโนมัติจากเอกสารและบันทึกด้วยมือ',
+  title: 'สมุดรายวัน',
   cols: [
   { key: 'no', header: 'เลขที่', fmt: 'mono' },
   { key: 'date', header: 'วันที่', fmt: 'date' },
@@ -406,7 +398,7 @@ const MASTER: Mod[] = [
   { key: 'status', label: 'สถานะ', options: opts(['draft', 'posted']) },
   { key: 'source', label: 'ที่มา', options: Array.from(new Set(ledger(d).map((j) => j.source))).map((s) => ({ value: s, label: s })) }],
 
-  actions: (r, a) => r.status === 'draft' ? [{ label: 'ผ่านรายการ', run: () => a.postJournal(r.id) }] : []
+  actions: (r, a) => r.status === 'draft' ? [{ label: 'ลงบัญชี', run: () => a.postJournal(r.id) }] : []
 }];
 
 
@@ -435,7 +427,7 @@ const FINANCE: Mod[] = [
     const t = run ? payTotals(run) : { wht: 0, sso: 0, gross: 0, net: 0 };
     return [
     {
-      title: `ภาษีมูลค่าเพิ่ม ${monthTH(MONTH)}`, sub: 'ภ.พ.30 · VAT 7%',
+      title: `ภ.พ.30 · ${monthTH(MONTH)}`,
       rows: [
       ['ยอดขายที่ต้องเสียภาษี', thb(v.salesBase)], ['ภาษีขาย (Output VAT)', thb(v.outVat)],
       ['ยอดซื้อที่มีภาษีซื้อ', thb(v.buyBase)], ['ภาษีซื้อ (Input VAT)', thb(v.inVat)],
@@ -444,7 +436,7 @@ const FINANCE: Mod[] = [
       note: 'ยื่นภายในวันที่ 15 ของเดือนถัดไป'
     },
     {
-      title: 'ปฏิทินภาษีและนำส่งเงินสมทบ', sub: 'Filing calendar', wide: true,
+      title: 'วันครบกำหนด', wide: true,
       lines: CALENDAR.map((c) => ({ left: `${c.form} — ${c.desc}`, sub: `กำหนดยื่น ${dateTH(c.due)}`, status: 'pending' }))
     },
     {
@@ -459,7 +451,7 @@ const FINANCE: Mod[] = [
     }];
 
   },
-  title: `ภาษีหัก ณ ที่จ่าย — ภ.ง.ด.53 งวด ${monthTH(MONTH)}`, sub: 'Withholding tax certificates',
+  title: `ภ.ง.ด.53 · ${monthTH(MONTH)}`,
   cols: [
   { key: 'no', header: 'เอกสารอ้างอิง', fmt: 'mono' },
   { key: 'payee', header: 'ผู้ถูกหักภาษี' },
@@ -481,7 +473,7 @@ const FINANCE: Mod[] = [
   { label: 'ภาษีหัก ณ ที่จ่ายต่องวด', value: thb(payTotals(d.payroll[d.payroll.length - 1]).wht, true) },
   { label: 'งวดรออนุมัติ/จ่าย', value: `${d.payroll.filter((p) => p.status !== 'paid').length} งวด`, tone: 'warn' }],
 
-  title: 'งวดเงินเดือน', sub: 'ร่าง → รออนุมัติ → อนุมัติ → จ่ายแล้ว',
+  title: 'งวดเงินเดือน',
   cols: [
   { key: 'periodTh', header: 'งวด' },
   { key: 'payDate', header: 'วันที่จ่าย', fmt: 'date', hide: 'sm' },
@@ -521,7 +513,7 @@ const FINANCE: Mod[] = [
   { label: 'ค่าเสื่อมราคาต่อเดือน', value: thb(depMonthly(d), true), tone: 'warn' },
   { label: 'สินทรัพย์ใช้งาน', value: `${d.assets.filter((x) => x.status === 'active').length} รายการ` }],
 
-  title: 'ทะเบียนสินทรัพย์', sub: 'Straight-line depreciation',
+  title: 'ทะเบียนสินทรัพย์',
   cols: [
   { key: 'code', header: 'รหัส', fmt: 'mono' },
   { key: 'name', header: 'สินทรัพย์' },
@@ -549,7 +541,7 @@ const FINANCE: Mod[] = [
   { label: 'รายได้ที่รับรู้', value: thb(d.projects.reduce((s, p) => s + projectPL(d, p.id).revenue, 0), true) },
   { label: 'กำไรขั้นต้นรวม', value: thb(d.projects.reduce((s, p) => s + projectPL(d, p.id).margin, 0), true), tone: 'ok' }],
 
-  title: 'โครงการ', sub: 'Project profitability',
+  title: 'โครงการ',
   cols: [
   { key: 'code', header: 'รหัส', fmt: 'mono' },
   { key: 'nameTh', header: 'โครงการ' },
@@ -591,7 +583,7 @@ const FINANCE: Mod[] = [
     const payrollDue = d.payroll.filter((x) => x.status !== 'paid').reduce((s, x) => s + payTotals(x).net, 0);
     return [
     {
-      title: 'งบกำไรขาดทุน', sub: `Profit & loss · มี.ค. – ${monthTH(MONTH)} 2569`, wide: true,
+      title: 'งบกำไรขาดทุน', sub: `มี.ค. – ${monthTH(MONTH)} 2569`, wide: true,
       rows: [
       ...p.rev.map((r) => [`${r.code} ${r.name}`, thb(r.amount)] as [string, string]),
       ['รวมรายได้', thb(p.totalRev), true] as [string, string, boolean],
@@ -603,16 +595,16 @@ const FINANCE: Mod[] = [
 
     },
     {
-      title: 'สถานะเงินสดและประมาณการ', sub: 'Cash position & outlook',
+      title: 'ประมาณการเงินสด',
       rows: [
       ['เงินสดและเงินฝากคงเหลือ', thb(cash(d))], ['คาดว่าจะรับจากลูกหนี้', thb(ar(d))],
       ['ภาระจ่ายเจ้าหนี้', thb(-ap(d))], ['เงินเดือนที่ยังไม่จ่าย', thb(-payrollDue)],
       ['ประมาณการเงินสดปลายงวด', thb(cash(d) + ar(d) - ap(d) - payrollDue), true]] as
       Array<[string, string, boolean?]>
     },
-    { title: 'อายุลูกหนี้', sub: 'AR aging', bars: arB.map((b) => ({ label: b.label, note: thb(b.amount), value: b.amount, max: maxAr, tone: (b.label === 'ยังไม่ครบกำหนด' ? 'info' : 'warn') as Tone })) },
-    { title: 'อายุเจ้าหนี้', sub: 'AP aging', bars: apB.map((b) => ({ label: b.label, note: thb(b.amount), value: b.amount, max: maxAp, tone: (b.label === 'ยังไม่ครบกำหนด' ? 'info' : 'warn') as Tone })) },
-    { title: 'ยอดขายตามลูกค้า', sub: 'Revenue by customer (ไม่รวม VAT)', bars: byCustomer.map((c) => ({ label: c.name, note: thb(c.amount), value: c.amount, max: maxCust, tone: 'info' as Tone })) }];
+    { title: 'อายุลูกหนี้', bars: arB.map((b) => ({ label: b.label, note: thb(b.amount), value: b.amount, max: maxAr, tone: (b.label === 'ยังไม่ครบกำหนด' ? 'info' : 'warn') as Tone })) },
+    { title: 'อายุเจ้าหนี้', bars: apB.map((b) => ({ label: b.label, note: thb(b.amount), value: b.amount, max: maxAp, tone: (b.label === 'ยังไม่ครบกำหนด' ? 'info' : 'warn') as Tone })) },
+    { title: 'ยอดขายตามลูกค้า', bars: byCustomer.map((c) => ({ label: c.name, note: thb(c.amount), value: c.amount, max: maxCust, tone: 'info' as Tone })) }];
 
   },
   title: 'ผลการดำเนินงานตามโครงการ', sub: 'Project margin summary',
@@ -633,16 +625,21 @@ const FINANCE: Mod[] = [
 
 
 const MODULES: Mod[] = [...CORE, ...MASTER, ...FINANCE];
-const GROUPS = ['ภาพรวม', 'วงจรรายได้', 'วงจรรายจ่าย', 'ข้อมูลหลัก', 'ปฏิบัติการ', 'บัญชีและภาษี'];
+const GROUPS = [
+  { label: 'หน้าหลัก', ids: ['dashboard', 'approvals'] },
+  { label: 'ซื้อและขาย', ids: ['sales', 'purchases', 'expenses'] },
+  { label: 'งานประจำ', ids: ['contacts', 'products', 'inventory', 'banking', 'payroll'] },
+  { label: 'บัญชีและรายงาน', ids: ['accounting', 'tax', 'assets', 'projects', 'reports'] }
+];
 
 function Nav({ active, collapsed, onPick }: {active: string;collapsed: boolean;onPick: (id: string) => void;}) {
   return (
     <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label="เมนูโมดูล">
       {GROUPS.map((g) =>
-      <div key={g} className="mb-3">
-          {!collapsed ? <p className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{g}</p> : null}
+      <div key={g.label} className="mb-4">
+          {!collapsed ? <p className="px-2 pb-1.5 text-[11px] font-medium text-slate-500">{g.label}</p> : null}
           <ul className="space-y-0.5">
-            {MODULES.filter((m) => m.group === g).map((m) => {
+            {g.ids.map((id) => MODULES.find((m) => m.id === id)).filter((m): m is Mod => Boolean(m)).map((m) => {
             const Icon = m.icon;
             const on = m.id === active;
             return (
@@ -650,18 +647,15 @@ function Nav({ active, collapsed, onPick }: {active: string;collapsed: boolean;o
                   <button
                   type="button"
                   onClick={() => onPick(m.id)}
-                  title={collapsed ? `${m.th} · ${m.en}` : undefined}
+                  title={collapsed ? m.th : undefined}
                   aria-current={on ? 'page' : undefined}
-                  className={cx('flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] transition-colors',
+                  className={cx('flex min-h-10 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400',
                   on ? 'bg-blue-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white',
                   collapsed && 'justify-center px-0')}>
 
                     <Icon className="h-4 w-4 shrink-0" />
                     {!collapsed ?
-                  <span className="min-w-0 flex-1 truncate">
-                        {m.th}
-                        <span className={cx('ml-1.5 text-[10.5px]', on ? 'text-white/70' : 'text-slate-500')}>{m.en}</span>
-                      </span> :
+                  <span className="min-w-0 flex-1 truncate">{m.th}</span> :
                   null}
                   </button>
                 </li>);
@@ -674,18 +668,40 @@ function Nav({ active, collapsed, onPick }: {active: string;collapsed: boolean;o
 
 }
 
-export function App() {
+interface DemoSession { email: string; }
+
+function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () => void;}) {
   const { data, actions, toasts } = useStore();
   const [active, setActive] = useState('dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const [open, setOpen] = useState(false);
+  const closeMenuRef = useRef<HTMLButtonElement>(null);
   const m = useMemo(() => MODULES.find((x) => x.id === active) ?? MODULES[0], [active]);
   const pending = pendingList(data).length;
 
   const go = (id: string) => {
     setActive(id);
     setOpen(false);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    closeMenuRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const resetDemo = () => {
+    if (window.confirm('คืนข้อมูลตัวอย่างทั้งหมด?')) actions.reset();
   };
 
   const brand =
@@ -693,8 +709,8 @@ export function App() {
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-700 text-[13px] font-bold text-white">ส</span>
       {!collapsed ?
     <div className="min-w-0">
-          <p className="truncate text-[12.5px] font-semibold text-white">{data.company.nameTh}</p>
-          <p className="truncate text-[10.5px] text-slate-400">{data.company.nameEn} · {data.company.taxId}</p>
+          <p className="truncate text-[12.5px] font-semibold text-white">Siam ERP</p>
+          <p className="truncate text-[10.5px] text-slate-400">ข้อมูลสาธิต</p>
         </div> :
     null}
     </div>;
@@ -709,7 +725,7 @@ export function App() {
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
-            className="flex w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-white">
+            className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
 
             {collapsed ? <ChevronsRightIcon className="h-4 w-4" /> : <ChevronsLeftIcon className="h-4 w-4" />}
             {!collapsed ? 'ย่อเมนู' : null}
@@ -726,12 +742,13 @@ export function App() {
 
             <motion.aside
             className="relative flex h-full w-[258px] flex-col bg-slate-900"
+            role="dialog" aria-modal="true" aria-label="เมนูหลัก"
             initial={{ x: -24, opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -24, opacity: 0 }}
             transition={{ duration: 0.18, ease: 'easeOut' }}>
 
               <div className="flex items-center justify-between">
                 {brand}
-                <button type="button" onClick={() => setOpen(false)} aria-label="ปิดเมนู" className="mr-2 rounded-lg p-1.5 text-slate-300 hover:bg-slate-800">
+                <button ref={closeMenuRef} type="button" onClick={() => setOpen(false)} aria-label="ปิดเมนู" className="mr-2 flex h-10 w-10 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
                   <XIcon className="h-4 w-4" />
                 </button>
               </div>
@@ -742,43 +759,37 @@ export function App() {
       </AnimatePresence>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2.5">
-          <button type="button" onClick={() => setOpen(true)} aria-label="เปิดเมนู" className="rounded-lg border border-slate-200 p-1.5 text-slate-700 lg:hidden">
+        <header className="sticky top-0 z-30 flex min-h-14 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:px-4">
+          <button type="button" onClick={() => setOpen(true)} aria-label="เปิดเมนู" className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden">
             <MenuIcon className="h-4 w-4" />
           </button>
           <div className="min-w-0">
-            <p className="truncate text-[12.5px] font-semibold text-slate-900">{m.th} <span className="font-normal text-slate-400">/ {m.en}</span></p>
-            <p className="truncate text-[11px] text-slate-500">ปีบัญชี 2569 · ข้อมูล ณ {dateTH(TODAY)} · สกุลเงินบาท (THB)</p>
+            <p className="truncate text-[14px] font-semibold text-slate-900">{m.th}</p>
+            <p className="hidden truncate text-[11px] text-slate-500 sm:block">ข้อมูล {dateTH(TODAY)}</p>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="hidden items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600 sm:inline-flex">
-              <LockIcon className="h-3 w-3" /> ปิดงวดถึง {dateTH(data.settings.closedThrough)}
-            </span>
+          <div className="ml-auto flex items-center gap-1.5">
             <button
               type="button" onClick={() => go('approvals')}
-              className={cx('rounded-full border px-2.5 py-1 text-[11px] font-medium', pending ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-slate-50 text-slate-500')}>
+              aria-label={`งานรออนุมัติ ${pending} รายการ`}
+              className={cx('min-h-9 rounded-lg px-2.5 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600', pending ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600')}>
 
-              รออนุมัติ {pending}
+              อนุมัติ {pending}
             </button>
-            <Button size="sm" icon={RotateCcwIcon} onClick={actions.reset}>คืนค่าข้อมูล</Button>
+            <Button size="sm" icon={RotateCcwIcon} onClick={resetDemo} className="hidden sm:inline-flex">รีเซ็ต</Button>
+            <Button size="sm" icon={LogOutIcon} onClick={onSignOut} className="px-2" ariaLabel={`ออกจากระบบ ${session.email}`}>ออก</Button>
           </div>
         </header>
 
         <main className="min-w-0 flex-1 space-y-4 px-4 py-4 lg:px-6 lg:py-5">
           <motion.div key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-4">
-            <div>
-              <h1 className="text-[19px] font-semibold tracking-tight text-slate-900">
-                {m.th} <span className="ml-1 text-[13px] font-normal text-slate-400">{m.en}</span>
-              </h1>
-              <p className="mt-0.5 max-w-3xl text-[12.5px] text-slate-500">{m.desc}</p>
-            </div>
+            <h1 className="text-[20px] font-semibold tracking-tight text-slate-950">{m.th}</h1>
 
             <KpiStrip items={m.kpis(data)} />
             {m.panels ? <Panels items={m.panels(data, actions)} /> : null}
 
             {m.cols && m.rows ?
             <Card>
-                <CardHead title={m.title ?? m.th} sub={m.sub} />
+                <CardHead title={m.title ?? m.th} />
                 <DataTable
                 cols={m.cols}
                 rows={m.rows(data)}
@@ -790,12 +801,12 @@ export function App() {
           </motion.div>
         </main>
 
-        <footer className="border-t border-slate-200 px-4 py-3 text-[11px] text-slate-400 lg:px-6">
-          ต้นแบบระบบบัญชีและ ERP ภาษาไทย · ข้อมูลตัวอย่างบันทึกในเบราว์เซอร์ (localStorage) · VAT 7% และภาษีหัก ณ ที่จ่ายตามแนวปฏิบัติไทย
+        <footer className="border-t border-slate-200 px-4 py-3 text-[11px] text-slate-500 lg:px-6">
+          ข้อมูลสาธิต · บันทึกในเบราว์เซอร์นี้
         </footer>
       </div>
 
-      <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(92vw,360px)] flex-col gap-2">
+      <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(92vw,360px)] flex-col gap-2" role="status" aria-live="polite">
         <AnimatePresence>
           {toasts.map((t) =>
           <motion.div
@@ -814,4 +825,95 @@ export function App() {
       </div>
     </div>);
 
+}
+
+const SESSION_KEY = 'thai-erp-demo-session';
+
+function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!email.includes('@')) {
+      setError('กรอกอีเมลให้ถูกต้อง');
+      return;
+    }
+    if (password.length < 4) {
+      setError('รหัสผ่านอย่างน้อย 4 ตัว');
+      return;
+    }
+    onEnter(email.trim());
+  };
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10">
+      <section className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-sm sm:p-8" aria-labelledby="sign-in-title">
+        <div className="mb-6 flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-700 text-base font-bold text-white">ส</span>
+          <div>
+            <p className="font-semibold text-slate-950">Siam ERP</p>
+            <p className="text-[12px] text-slate-500">ระบบสาธิต</p>
+          </div>
+        </div>
+        <h1 id="sign-in-title" className="text-2xl font-semibold tracking-tight text-slate-950">เข้าสู่ระบบ</h1>
+        <form className="mt-5 space-y-4" onSubmit={submit}>
+          <label className="block">
+            <span className="mb-1.5 block text-[13px] font-medium text-slate-700">อีเมล</span>
+            <input
+              type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-950 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1.5 block text-[13px] font-medium text-slate-700">รหัสผ่าน</span>
+            <input
+              type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)}
+              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-950 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100"
+            />
+          </label>
+          {error ? <p className="text-[12px] text-rose-700" role="alert">{error}</p> : null}
+          <button type="submit" className="flex h-11 w-full items-center justify-center rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+            เข้าสู่ระบบ
+          </button>
+        </form>
+        <div className="my-5 flex items-center gap-3 text-[11px] text-slate-400" aria-hidden="true">
+          <span className="h-px flex-1 bg-slate-200" />หรือ<span className="h-px flex-1 bg-slate-200" />
+        </div>
+        <button
+          type="button" onClick={() => onEnter('demo@sample.local')}
+          className="flex h-11 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+          ทดลองใช้ทันที
+        </button>
+        <p className="mt-4 text-center text-[11px] text-slate-500">ไม่ใช้ข้อมูลจริง</p>
+      </section>
+    </main>
+  );
+}
+
+function readSession(): DemoSession | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) as DemoSession : null;
+  } catch {
+    return null;
+  }
+}
+
+export function App() {
+  const [session, setSession] = useState<DemoSession | null>(() => readSession());
+
+  const enter = (email: string) => {
+    const next = { email };
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    setSession(next);
+  };
+
+  const leave = () => {
+    sessionStorage.removeItem(SESSION_KEY);
+    setSession(null);
+  };
+
+  return session ? <Workbench session={session} onSignOut={leave} /> : <SignIn onEnter={enter} />;
 }

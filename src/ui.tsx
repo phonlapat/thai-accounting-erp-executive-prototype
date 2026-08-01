@@ -5,6 +5,7 @@ import { ArrowUpDownIcon, SearchIcon } from 'lucide-react';
 import { STATUS, dateTH, num, thb } from './data';
 import type { Tone } from './data';
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const cx = (...c: Array<string | false | undefined | null>) => c.filter(Boolean).join(' ');
 
 const TONE: Record<Tone, string> = {
@@ -28,7 +29,7 @@ export function Badge({ value }: {value: string;}) {
 }
 
 export function Button({
-  children, onClick, variant = 'ghost', size = 'md', icon: Icon, disabled, className
+  children, onClick, variant = 'ghost', size = 'md', icon: Icon, disabled, className, ariaLabel, title
 
 
 
@@ -37,22 +38,24 @@ export function Button({
 
 
 
-}: {children?: React.ReactNode;onClick?: () => void;variant?: 'primary' | 'ghost' | 'danger';size?: 'sm' | 'md';icon?: React.ComponentType<{className?: string;}>;disabled?: boolean;className?: string;}) {
+}: {children?: React.ReactNode;onClick?: () => void;variant?: 'primary' | 'ghost' | 'danger';size?: 'sm' | 'md';icon?: React.ComponentType<{className?: string;}>;disabled?: boolean;className?: string;ariaLabel?: string;title?: string;}) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      aria-label={ariaLabel}
+      title={title}
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg border font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'px-2 py-1 text-[11.5px]' : 'px-3 py-1.5 text-[12.5px]',
+        'inline-flex items-center justify-center gap-1.5 rounded-lg border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+        size === 'sm' ? 'min-h-9 px-2.5 py-1 text-[12px]' : 'min-h-10 px-3 py-1.5 text-[13px]',
         variant === 'primary' && 'border-blue-700 bg-blue-700 text-white hover:bg-blue-800',
         variant === 'ghost' && 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
         variant === 'danger' && 'border-rose-200 bg-white text-rose-700 hover:bg-rose-50',
         className
       )}>
 
-      {Icon ? <Icon className="h-3.5 w-3.5" /> : null}
+      {Icon ? <Icon className="h-4 w-4" /> : null}
       {children}
     </button>);
 
@@ -77,17 +80,16 @@ export function CardHead({ title, sub, action }: {title: string;sub?: string;act
 export function KpiStrip({ items }: {items: Array<{label: string;sub?: string;value: string;tone?: Tone;hint?: string;}>;}) {
   return (
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
-      {items.map((k) =>
-      <div key={k.label} className="bg-white px-3.5 py-2.5">
-          <p className="truncate text-[10.5px] uppercase tracking-wide text-slate-500">
+      {items.map((k, index) =>
+      <div key={k.label} className={cx('bg-white px-3.5 py-2.5', items.length % 2 === 1 && index === items.length - 1 && 'col-span-2 sm:col-span-1')}>
+          <p className="truncate text-[11.5px] font-medium text-slate-600">
             {k.label}
-            {k.sub ? <span className="ml-1 normal-case text-slate-400">{k.sub}</span> : null}
           </p>
           <p className={cx('mt-0.5 truncate text-[17px] font-semibold tabular-nums',
         k.tone === 'ok' ? 'text-emerald-700' : k.tone === 'bad' ? 'text-rose-700' : k.tone === 'warn' ? 'text-amber-700' : 'text-slate-900')}>
             {k.value}
           </p>
-          {k.hint ? <p className="truncate text-[10.5px] text-slate-400">{k.hint}</p> : null}
+          {k.hint ? <p className="truncate text-[11px] text-slate-500">{k.hint}</p> : null}
         </div>
       )}
     </div>);
@@ -231,18 +233,19 @@ export function DataTable({
   }, [rows, q, sel, filters, sort]);
 
   const totals = cols.filter((c) => c.total);
+  const filtering = Boolean(q || Object.values(sel).some(Boolean));
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2.5">
         <label className="relative flex min-w-[190px] flex-1 items-center">
           <SearchIcon className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-slate-400" />
           <span className="sr-only">ค้นหา</span>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="ค้นหาเลขที่เอกสาร ชื่อ หรือรายละเอียด…"
-            className="w-full rounded-lg border border-slate-200 py-1.5 pl-8 pr-2.5 text-[12.5px] text-slate-900 placeholder:text-slate-400 focus:border-blue-600 focus:outline-none" />
+            placeholder="ค้นหา…"
+            className="h-10 w-full rounded-lg border border-slate-300 pl-8 pr-2.5 text-[13px] text-slate-900 placeholder:text-slate-500 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100" />
 
         </label>
         {filters.map((f) =>
@@ -251,40 +254,44 @@ export function DataTable({
             <select
             value={sel[f.key] ?? ''}
             onChange={(e) => setSel((s) => ({ ...s, [f.key]: e.target.value }))}
-            className="rounded-lg border border-slate-200 px-2 py-1.5 text-[12px] text-slate-700 focus:border-blue-600 focus:outline-none">
+            className="h-10 rounded-lg border border-slate-300 bg-white px-2.5 text-[12.5px] text-slate-700 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100">
 
-              <option value="">{f.label}: ทั้งหมด</option>
+              <option value="">{f.label}ทั้งหมด</option>
               {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </label>
         )}
-        <span className="ml-auto whitespace-nowrap text-[11.5px] text-slate-500">{view.length} รายการ</span>
+        {filtering ?
+        <button type="button" onClick={() => { setQ(''); setSel({}); }} className="min-h-10 rounded-lg px-2.5 text-[12px] font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+            ล้าง
+          </button> : null}
+        <span className="ml-auto whitespace-nowrap text-[12px] text-slate-500">{view.length} รายการ</span>
       </div>
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-[620px] text-[12.5px]">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 text-[10.5px] uppercase tracking-wide text-slate-500">
+            <tr className="border-b border-slate-200 bg-slate-50 text-[11px] text-slate-600">
               {cols.map((c) =>
-              <th key={c.key} className={cx('px-3 py-2 font-semibold', c.right ? 'text-right' : 'text-left', c.hide && HIDE[c.hide])}>
+              <th key={c.key} aria-sort={sort?.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'} className={cx('px-3 py-2.5 font-semibold', c.right ? 'text-right' : 'text-left', c.hide && HIDE[c.hide])}>
                   <button
                   type="button"
                   onClick={() => setSort((s) => s?.key === c.key ? { key: c.key, dir: s.dir === 1 ? -1 : 1 } : { key: c.key, dir: 1 })}
-                  className="inline-flex items-center gap-1 uppercase hover:text-slate-800">
+                  className="inline-flex min-h-8 items-center gap-1 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
 
                     {c.header}
                     <ArrowUpDownIcon className={cx('h-3 w-3', sort?.key === c.key ? 'text-blue-700' : 'text-slate-300')} />
                   </button>
                 </th>
               )}
-              {actions ? <th className="px-3 py-2 text-right font-semibold">การดำเนินการ</th> : null}
+              {actions ? <th className="px-3 py-2.5 text-right font-semibold">จัดการ</th> : null}
             </tr>
           </thead>
           <tbody>
             {view.map((r) =>
             <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
                 {cols.map((c) =>
-              <td key={c.key} className={cx('px-3 py-2', c.right && 'text-right tabular-nums', c.fmt === 'mono' && 'font-medium tabular-nums text-slate-900', c.hide && HIDE[c.hide], c.fmt === 'status' && 'text-center')}>
+              <td key={c.key} className={cx('px-3 py-2.5', c.right && 'text-right tabular-nums', c.fmt === 'mono' && 'font-medium tabular-nums text-slate-900', c.hide && HIDE[c.hide], c.fmt === 'status' && 'text-center')}>
                     {c.fmt === 'status' ? <Badge value={String(r[c.key] ?? '')} /> : fmt(r[c.key], c.fmt)}
                   </td>
               )}

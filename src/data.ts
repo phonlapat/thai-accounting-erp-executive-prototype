@@ -136,13 +136,18 @@ C('s1', 'SUP-0001', 'supplier', 'บริษัท ทีเอ็นซี ฮ
 C('s2', 'SUP-0002', 'supplier', 'บริษัท คลาวด์เน็ต เซอร์วิสเซส จำกัด', 'CloudNet Services', 'DEMO-TAX-S002', 'คุณศิริพร (ตัวอย่าง)', '02-000-0102', 15),
 C('s3', 'SUP-0003', 'supplier', 'บริษัท สินมั่นคง ขนส่ง จำกัด', 'Sinmankong Transport', 'DEMO-TAX-S003', 'คุณประเสริฐ (ตัวอย่าง)', '02-000-0103', 30)];
 
+function productById(pid: string): Product {
+  const product = products.find((item) => item.id === pid);
+  if (!product) throw new Error(`Unknown product: ${pid}`);
+  return product;
+}
 
 export function li(pid: string, qty: number): Line {
-  const p = products.find((x) => x.id === pid)!;
+  const p = productById(pid);
   return { desc: p.nameTh, qty, unit: p.unit, price: p.price, vat: 7, acct: p.acct, pid };
 }
 export function lc(pid: string, qty: number): Line {
-  const p = products.find((x) => x.id === pid)!;
+  const p = productById(pid);
   return { desc: `${p.nameTh} (ต้นทุน)`, qty, unit: p.unit, price: p.cost, vat: 7, acct: '1040', pid };
 }
 export const lx = (desc: string, price: number, acct: string): Line => ({ desc, qty: 1, unit: 'งาน', price, vat: 7, acct });
@@ -275,8 +280,11 @@ export function seed(): AppData {
   { id: 'j2', no: 'JV690302', date: '2026-07-31', desc: 'ค่าเสื่อมราคาประจำเดือนกรกฎาคม 2569', source: 'สินทรัพย์ถาวร', status: 'draft', lines: [{ account: '5280', debit: 40158, credit: 0 }, { account: '1590', debit: 0, credit: 40158 }] },
   { id: 'j3', no: 'JV690303', date: '2026-07-31', desc: 'ตั้งค้างจ่ายค่าเช่าสำนักงานเดือนกรกฎาคม 2569', source: 'บันทึกด้วยมือ', status: 'draft', lines: [{ account: '5210', debit: 120000, credit: 0 }, { account: '2010', debit: 0, credit: 120000 }] }];
 
+  const pendingBill = rawDocs.find((doc) => doc.id === 'b5');
+  if (!pendingBill) throw new Error('Missing demo bill b5');
+
   const approvals: Approval[] = [
-  { id: 'a1', kind: 'bill', refId: 'b5', refNo: 'BL690205', title: 'บิลซื้อ — คลาวด์เน็ต เซอร์วิสเซส', amount: netOf(rawDocs.find((d) => d.id === 'b5')!.lines, 3), requester: 'ปิยะดา แก้วเพชร', date: '2026-07-05', status: 'pending' },
+  { id: 'a1', kind: 'bill', refId: 'b5', refNo: 'BL690205', title: 'บิลซื้อ — คลาวด์เน็ต เซอร์วิสเซส', amount: netOf(pendingBill.lines, 3), requester: 'ปิยะดา แก้วเพชร', date: '2026-07-05', status: 'pending' },
   { id: 'a2', kind: 'expense', refId: 'x3', refNo: 'EX690033', title: 'ค่าวัสดุสำนักงาน — ปิยะดา แก้วเพชร', amount: 4280, requester: 'ปิยะดา แก้วเพชร', date: '2026-07-15', status: 'pending' },
   { id: 'a3', kind: 'expense', refId: 'x5', refNo: 'EX690035', title: 'ค่าสาธารณูปโภค — ณัฐวุฒิ ประเสริฐผล', amount: 18190, requester: 'ณัฐวุฒิ ประเสริฐผล', date: '2026-07-22', status: 'pending' },
   { id: 'a4', kind: 'payroll', refId: 'pay-2026-07', refNo: 'PAY-2026-07', title: 'อนุมัติจ่ายเงินเดือนงวดกรกฎาคม 2569', amount: payTotals(payroll[1]).net, requester: 'อรพรรณ ศรีวิชัย', date: '2026-07-26', status: 'pending' },
