@@ -121,13 +121,55 @@ export function Row({ label, value, strong }: {label: string;value: string;stron
 /* ---------------- panels ---------------- */
 export interface PanelLine {left: string;sub?: string;right?: string;status?: string;tone?: Tone;actions?: Array<{label: string;run: () => void;danger?: boolean;}>;}
 export interface PanelBar {label: string;note?: string;value: number;max: number;tone?: Tone;}
+export interface PanelSignedChart {
+  title: string;sub?: string;summary?: string;change?: string;
+  points: Array<{label: string;value: number;note: string;}>;
+}
 export interface PanelSpec {
   title: string;sub?: string;wide?: boolean;note?: string;
   rows?: Array<[string, string, boolean?]>;
   bars?: PanelBar[];
   lines?: PanelLine[];
+  signedChart?: PanelSignedChart;
   action?: {label: string;run: () => void;disabled?: boolean;};
   empty?: string;
+}
+
+function SignedBars({ chart }: {chart: PanelSignedChart;}) {
+  const max = Math.max(...chart.points.map((p) => Math.abs(p.value)), 1);
+  const aria = `${chart.title}: ${chart.points.map((p) => `${p.label} ${p.note}`).join(', ')}`;
+  return (
+    <section className="border-t border-slate-200 px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h4 className="text-[12px] font-medium text-slate-900">{chart.title}</h4>
+          {chart.sub ? <p className="text-[10.5px] text-slate-500">{chart.sub}</p> : null}
+        </div>
+        <div className="text-right">
+          {chart.summary ? <p className="text-[13px] font-semibold tabular-nums text-slate-900">{chart.summary}</p> : null}
+          {chart.change ? <p className="text-[10.5px] tabular-nums text-slate-500">{chart.change}</p> : null}
+        </div>
+      </div>
+      <div role="img" aria-label={aria} className="mt-2.5 grid grid-cols-5 gap-1.5">
+        {chart.points.map((point) => {
+          const positive = point.value >= 0;
+          const height = Math.max(3, Math.round(Math.abs(point.value) / max * 22));
+          return (
+            <div key={point.label} className="min-w-0 text-center">
+              <span className={cx('block truncate text-[9.5px] tabular-nums', positive ? 'text-blue-700' : 'text-amber-700')}>{point.note}</span>
+              <div className="relative mx-auto mt-1 h-12 w-full max-w-12">
+                <span className="absolute inset-x-0 top-1/2 border-t border-slate-300" />
+                <motion.span
+                  initial={{ height: 0 }} animate={{ height }} transition={{ duration: 0.24, ease: 'easeOut' }}
+                  className={cx('absolute left-1/2 w-4 -translate-x-1/2', positive ? 'bottom-1/2 rounded-t-sm bg-blue-600' : 'top-1/2 rounded-b-sm bg-amber-500')} />
+              </div>
+              <span className="block text-[10px] text-slate-600">{point.label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 export function Panels({ items }: {items: PanelSpec[];}) {
@@ -172,6 +214,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
             </ul> :
         null}
           {p.lines && !p.lines.length ? <p className="px-4 py-6 text-center text-[12px] text-slate-500">{p.empty ?? 'ไม่มีรายการ'}</p> : null}
+          {p.signedChart ? <SignedBars chart={p.signedChart} /> : null}
           {p.rows?.length ?
         <dl className="px-4 py-3">
               {p.rows.map(([label, value, strong]) => <Row key={label} label={label} value={value} strong={strong} />)}
