@@ -1,5 +1,5 @@
 /* Selectors, reports and the localStorage-backed store */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MONTHS, TODAY, addDays, baseOf, dueOf, docStatus, monthTH, netOf, nextNo, payItems, payTotals,
   seed, uid, vatOf, whtOf } from
@@ -162,7 +162,10 @@ const KEY = 'siam-erp-th-v1';
 function load(): AppData {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as AppData;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<AppData>;
+      if (parsed && Array.isArray(parsed.docs) && Array.isArray(parsed.contacts) && Array.isArray(parsed.approvals) && parsed.settings && parsed.company) return parsed as AppData;
+    }
   } catch {
 
     /* ignore corrupt storage */}
@@ -171,20 +174,30 @@ function load(): AppData {
 
 export function useStore() {
   const [data, setData] = useState<AppData>(load);
+  const dataRef = useRef(data);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [storageIssue, setStorageIssue] = useState(false);
+  const toastTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   useEffect(() => {
     try {
       localStorage.setItem(KEY, JSON.stringify(data));
+      setStorageIssue(false);
     } catch {
-
-      /* storage full or blocked — prototype still works in memory */}
+      setStorageIssue(true);
+    }
   }, [data]);
+
+  useEffect(() => () => toastTimers.current.forEach((timer) => clearTimeout(timer)), []);
 
   const notify = useCallback((text: string, tone: 'ok' | 'bad' = 'ok') => {
     const id = uid('t');
     setToasts((t) => [...t, { id, text, tone }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
+    const timer = setTimeout(() => {
+      setToasts((t) => t.filter((x) => x.id !== id));
+      toastTimers.current = toastTimers.current.filter((item) => item !== timer);
+    }, 4200);
+    toastTimers.current.push(timer);
   }, []);
 
   const actions = useMemo(() => {
@@ -192,8 +205,12 @@ export function useStore() {
       ...d,
       activities: [{ id: uid('g'), at: `${dateStamp()} น.`, actor: 'สมชาย ธนกิจพัฒนา', text, module }, ...d.activities].slice(0, 40)
     });
-    /* compute from the current snapshot so notifications stay out of the state updater */
-    const mut = (fn: (d: AppData) => AppData) => setData(fn(data));
+    /* Keep a synchronous snapshot so rapid consecutive actions cannot overwrite each other. */
+    const mut = (fn: (d: AppData) => AppData) => {
+      const next = fn(dataRef.current);
+      dataRef.current = next;
+      setData(next);
+    };
 
     return {
       /* 1 — quote to cash */
@@ -414,13 +431,15 @@ export function useStore() {
         } catch {
 
           /* ignore */}
-        setData(seed());
+        const next = seed();
+        dataRef.current = next;
+        setData(next);
         notify('คืนค่าข้อมูลตัวอย่างเรียบร้อย');
       }
     };
-  }, [data, notify]);
+  }, [notify]);
 
-  return { data, actions, toasts };
+  return { data, actions, toasts, storageIssue };
 }
 
 export type Actions = ReturnType<typeof useStore>['actions'];
