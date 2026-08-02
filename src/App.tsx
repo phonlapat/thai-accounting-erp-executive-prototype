@@ -32,6 +32,7 @@ interface Mod {
 }
 
 const KIND_TH: Record<string, string> = { quote: 'ใบเสนอราคา', invoice: 'ใบแจ้งหนี้', receipt: 'ใบเสร็จรับเงิน', po: 'ใบสั่งซื้อ', bill: 'บิลซื้อ' };
+const APPROVAL_TH: Record<AppData['approvals'][number]['kind'], string> = { bill: 'บิลซื้อ', expense: 'ค่าใช้จ่าย', payroll: 'เงินเดือน', journal: 'สมุดรายวัน' };
 const opts = (vals: string[]) => Array.from(new Set(vals)).map((v) => ({ value: v, label: STATUS[v]?.th ?? v }));
 const N = (v: string | number | undefined) => Number(v ?? 0);
 
@@ -66,7 +67,7 @@ const CORE: Mod[] = [
   { label: 'ลูกหนี้', value: thb(ar(d), true) },
   { label: 'เจ้าหนี้', value: thb(ap(d), true), tone: 'warn' },
   { label: 'กำไรสุทธิ', value: thb(pl(d).net, true), tone: pl(d).net >= 0 ? 'ok' : 'bad' },
-  { label: 'รออนุมัติ', value: `${pendingList(d).length} รายการ`, tone: pendingList(d).length ? 'warn' : 'ok' }],
+  { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' }],
 
   panels: (d, a) => {
     const s = series(d).slice(-3);
@@ -76,16 +77,16 @@ const CORE: Mod[] = [
     {
       title: 'รายได้และค่าใช้จ่าย', wide: true,
       bars: s.flatMap((x) => [
-      { label: `${monthTH(x.month)} · รายได้`, note: thb(x.revenue, true), value: x.revenue, max, tone: 'info' as Tone },
-      { label: `${monthTH(x.month)} · ค่าใช้จ่าย`, note: `${thb(x.expense, true)} · กำไร ${thb(x.profit, true)}`, value: x.expense, max, tone: 'warn' as Tone }]
+      { label: `${monthTH(x.month).split(' ')[0]} · รายได้`, note: thb(x.revenue, true), value: x.revenue, max, tone: 'info' as Tone },
+      { label: `${monthTH(x.month).split(' ')[0]} · ค่าใช้จ่าย`, note: `${thb(x.expense, true)} · สุทธิ ${thb(x.profit, true)}`, value: x.expense, max, tone: 'warn' as Tone }]
       ),
-      rows: [['รายได้รวม', thb(p.totalRev)], ['ต้นทุนและค่าใช้จ่าย', thb(p.cogs + p.totalExp)], ['กำไรสุทธิ', thb(p.net), true]] as Array<[string, string, boolean?]>
+      rows: [['รายได้', thb(p.totalRev)], ['ค่าใช้จ่าย', thb(p.cogs + p.totalExp)], ['สุทธิ', thb(p.net), true]] as Array<[string, string, boolean?]>
     },
     {
-      title: 'รออนุมัติ', wide: true,
+      title: 'รออนุมัติ',
       lines: pendingList(d).slice(0, 4).map((x) => ({
-        left: x.title, sub: `${x.refNo} · ${dateTH(x.date)}`, right: thb(x.amount),
-        actions: [{ label: 'อนุมัติ', run: () => a.decide(x.id, true) }, { label: 'ไม่อนุมัติ', run: () => a.decide(x.id, false), danger: true }]
+        left: APPROVAL_TH[x.kind], sub: `${x.refNo} · ${dateTH(x.date)}`, right: thb(x.amount),
+        actions: [{ label: 'อนุมัติ', run: () => a.decide(x.id, true) }, { label: 'ปฏิเสธ', run: () => a.decide(x.id, false), danger: true }]
       })),
       empty: 'ไม่มีรายการค้างอนุมัติ'
     },
@@ -98,7 +99,7 @@ const CORE: Mod[] = [
       empty: 'ไม่มีลูกหนี้เกินกำหนด'
     },
     {
-      title: 'สต๊อกใกล้หมด',
+      title: 'สต๊อกใกล้หมด', wide: true,
       lines: lowStock(d).map((p2) => ({ left: `${p2.code} · ${p2.nameTh}`, sub: `เหลือ ${num(stockOf(p2))} · ขั้นต่ำ ${num(p2.reorder)}`, tone: 'bad' as Tone, status: 'low' })),
       empty: 'สต๊อกทุกรายการอยู่ในระดับปกติ',
       note: `มูลค่าสินค้าคงคลังรวม ${thb(invValue(d))}`
@@ -205,11 +206,11 @@ const CORE: Mod[] = [
 
   rows: (d) => d.approvals.map((x) => ({
     id: x.id, refNo: x.refNo, title: x.title, requester: x.requester, date: x.date, amount: x.amount, status: x.status,
-    kindTh: x.kind === 'bill' ? 'บิลซื้อ' : x.kind === 'expense' ? 'ค่าใช้จ่าย' : x.kind === 'payroll' ? 'เงินเดือน' : 'สมุดรายวัน'
+    kindTh: APPROVAL_TH[x.kind]
   })),
   filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(d.approvals.map((x) => x.status)) }],
   actions: (r, a) => r.status === 'pending' ?
-  [{ label: 'อนุมัติ', run: () => a.decide(r.id, true) }, { label: 'ไม่อนุมัติ', run: () => a.decide(r.id, false), danger: true }] :
+  [{ label: 'อนุมัติ', run: () => a.decide(r.id, true) }, { label: 'ปฏิเสธ', run: () => a.decide(r.id, false), danger: true }] :
   []
 }];
 
@@ -759,13 +760,12 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
       </AnimatePresence>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex min-h-14 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:px-4">
+        <header className="sticky top-0 z-30 flex min-h-12 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:px-4">
           <button type="button" onClick={() => setOpen(true)} aria-label="เปิดเมนู" className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden">
             <MenuIcon className="h-4 w-4" />
           </button>
           <div className="min-w-0">
-            <p className="truncate text-[14px] font-semibold text-slate-900">{m.th}</p>
-            <p className="hidden truncate text-[11px] text-slate-500 sm:block">ข้อมูล {dateTH(TODAY)}</p>
+            <p className="truncate text-[15px] font-semibold text-slate-900">{m.th}</p>
           </div>
           <div className="ml-auto flex items-center gap-1.5">
             <button
@@ -780,10 +780,8 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 space-y-4 px-4 py-4 lg:px-6 lg:py-5">
-          <motion.div key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-4">
-            <h1 className="text-[20px] font-semibold tracking-tight text-slate-950">{m.th}</h1>
-
+        <main className="min-w-0 flex-1 px-4 py-3 lg:px-6 lg:py-4">
+          <motion.div key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-3">
             <KpiStrip items={m.kpis(data)} />
             {m.panels ? <Panels items={m.panels(data, actions)} /> : null}
 
