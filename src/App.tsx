@@ -75,6 +75,7 @@ const CORE: Mod[] = [
     const latestProfit = profit[profit.length - 1];
     const previousProfit = profit[profit.length - 2];
     const profitChange = latestProfit && previousProfit ? latestProfit.profit - previousProfit.profit : 0;
+    const nextTax = [...CALENDAR].sort((x, y) => x.due.localeCompare(y.due))[0];
     const max = Math.max(...s.map((x) => Math.max(x.revenue, x.expense)), 1);
     const p = pl(d);
     return [
@@ -87,31 +88,34 @@ const CORE: Mod[] = [
       rows: [['รายได้', thb(p.totalRev)], ['ค่าใช้จ่าย', thb(p.cogs + p.totalExp)], ['สุทธิ', thb(p.net), true]] as Array<[string, string, boolean?]>
     },
     {
-      title: 'รออนุมัติ',
+      title: 'กำไรรายเดือน', sub: '5 เดือนล่าสุด · บาท',
+      signedChart: latestProfit ? {
+        latestLabel: dateTH(`${latestProfit.month}-01`).split(' ').slice(1).join(' '), summary: thb(latestProfit.profit, true),
+        change: previousProfit ? `${profitChange >= 0 ? '+' : ''}${thb(profitChange, true)} จากเดือนก่อน` : undefined,
+        changePositive: profitChange >= 0,
+        points: profit.map((x) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true) }))
+      } : undefined
+    },
+    {
+      title: 'รออนุมัติ', wide: true,
       lines: pendingList(d).slice(0, 4).map((x) => ({
         left: APPROVAL_TH[x.kind], sub: `${x.refNo} · ${dateTH(x.date)}`, right: thb(x.amount),
         actions: [{ label: 'อนุมัติ', run: () => a.decide(x.id, true) }, { label: 'ปฏิเสธ', run: () => a.decide(x.id, false), danger: true }]
       })),
-      signedChart: latestProfit ? {
-        title: 'กำไรรายเดือน', sub: '5 เดือนล่าสุด · บาท', summary: thb(latestProfit.profit, true),
-        change: previousProfit ? `เทียบเดือนก่อน ${profitChange >= 0 ? '+' : ''}${thb(profitChange, true)}` : undefined,
-        points: profit.map((x) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true) }))
-      } : undefined,
       empty: 'ไม่มีรายการค้างอนุมัติ'
     },
     {
-      title: 'ลูกหนี้เกินกำหนด',
-      lines: overdueList(d).slice(0, 5).map((x) => ({
-        left: `${x.no} · ${contactName(d, x.contactId)}`,
-        sub: `เกินกำหนด ${Math.floor((Date.parse(TODAY) - Date.parse(x.due)) / 864e5)} วัน`, tone: 'bad' as Tone, right: thb(dueOf(x))
+      title: 'ต้องจัดการ',
+      lines: [
+      ...overdueList(d).slice(0, 2).map((x) => ({
+        left: `${x.no} · ลูกหนี้เกินกำหนด`,
+        sub: `${Math.floor((Date.parse(TODAY) - Date.parse(x.due)) / 864e5)} วัน · ${contactName(d, x.contactId)}`, tone: 'bad' as Tone, right: thb(dueOf(x))
       })),
-      empty: 'ไม่มีลูกหนี้เกินกำหนด'
-    },
-    {
-      title: 'สต๊อกใกล้หมด', wide: true,
-      lines: lowStock(d).map((p2) => ({ left: `${p2.code} · ${p2.nameTh}`, sub: `เหลือ ${num(stockOf(p2))} · ขั้นต่ำ ${num(p2.reorder)}`, tone: 'bad' as Tone, status: 'low' })),
-      empty: 'สต๊อกทุกรายการอยู่ในระดับปกติ',
-      note: `มูลค่าสินค้าคงคลังรวม ${thb(invValue(d))}`
+      ...lowStock(d).slice(0, 1).map((p2) => ({
+        left: `${p2.code} · สต๊อกต่ำ`, sub: p2.nameTh, tone: 'bad' as Tone, right: `${num(stockOf(p2))} / ${num(p2.reorder)}`
+      })),
+      ...(nextTax ? [{ left: `${nextTax.form} · ยื่นภาษี`, sub: 'ครบกำหนด', tone: 'warn' as Tone, right: dateTH(nextTax.due) }] : [])],
+      empty: 'ไม่มีรายการเร่งด่วน'
     }];
 
   }
