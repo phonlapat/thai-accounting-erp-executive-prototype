@@ -70,7 +70,12 @@ const CORE: Mod[] = [
   { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' }],
 
   panels: (d, a) => {
-    const s = series(d).slice(-3);
+    const history = series(d);
+    const s = history.slice(-3);
+    const profit = history.slice(-5);
+    const latestProfit = profit[profit.length - 1];
+    const previousProfit = profit[profit.length - 2];
+    const profitChange = latestProfit && previousProfit ? latestProfit.profit - previousProfit.profit : 0;
     const max = Math.max(...s.map((x) => Math.max(x.revenue, x.expense)), 1);
     const p = pl(d);
     return [
@@ -88,6 +93,11 @@ const CORE: Mod[] = [
         left: APPROVAL_TH[x.kind], sub: `${x.refNo} · ${dateTH(x.date)}`, right: thb(x.amount),
         actions: [{ label: 'อนุมัติ', run: () => a.decide(x.id, true) }, { label: 'ปฏิเสธ', run: () => a.decide(x.id, false), danger: true }]
       })),
+      signedChart: latestProfit ? {
+        title: 'กำไรรายเดือน', sub: '5 เดือนล่าสุด · บาท', summary: thb(latestProfit.profit, true),
+        change: previousProfit ? `เทียบเดือนก่อน ${profitChange >= 0 ? '+' : ''}${thb(profitChange, true)}` : undefined,
+        points: profit.map((x) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true) }))
+      } : undefined,
       empty: 'ไม่มีรายการค้างอนุมัติ'
     },
     {
