@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MONTHS, TODAY, addDays, baseOf, dueOf, docStatus, monthTH, netOf, nextNo, payItems, payTotals,
-  seed, uid, vatOf, whtOf } from
+  seed, thb, uid, vatOf, whtOf } from
 './data';
 import type { AppData, Asset, Doc, Journal, JLine, Product } from './data';
 
@@ -159,12 +159,25 @@ export interface Toast {id: string;text: string;tone: 'ok' | 'bad';}
 
 const KEY = 'siam-erp-th-v1';
 
+const ARRAY_FIELDS: Array<keyof AppData> = [
+  'products', 'contacts', 'docs', 'expenses', 'bankAccts', 'bankTxns', 'journals', 'accounts',
+  'employees', 'payroll', 'assets', 'projects', 'approvals', 'activities'
+];
+
+function isAppData(value: unknown): value is AppData {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<AppData>;
+  return ARRAY_FIELDS.every((key) => Array.isArray(candidate[key])) &&
+    Boolean(candidate.company && typeof candidate.company === 'object') &&
+    Boolean(candidate.settings && typeof candidate.settings === 'object');
+}
+
 function load(): AppData {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      const parsed = JSON.parse(raw) as Partial<AppData>;
-      if (parsed && Array.isArray(parsed.docs) && Array.isArray(parsed.contacts) && Array.isArray(parsed.approvals) && parsed.settings && parsed.company) return parsed as AppData;
+      const parsed = JSON.parse(raw) as unknown;
+      if (isAppData(parsed)) return parsed;
     }
   } catch {
 
@@ -217,7 +230,10 @@ export function useStore() {
       convertQuote: (id: string) =>
       mut((d) => {
         const q = d.docs.find((x) => x.id === id);
-        if (!q) return d;
+        if (!q || q.kind !== 'quote' || q.status === 'converted') {
+          notify('ใบเสนอราคานี้ถูกดำเนินการแล้ว', 'bad');
+          return d;
+        }
         const c = d.contacts.find((x) => x.id === q.contactId);
         const no = nextNo('IV', d.docs.map((x) => x.no));
         const inv: Doc = {
@@ -231,7 +247,10 @@ export function useStore() {
       receivePayment: (id: string) =>
       mut((d) => {
         const inv = d.docs.find((x) => x.id === id);
-        if (!inv) return d;
+        if (!inv || inv.kind !== 'invoice' || dueOf(inv) <= 0.5) {
+          notify('ใบแจ้งหนี้นี้ไม่มียอดให้รับชำระ', 'bad');
+          return d;
+        }
         const amount = dueOf(inv);
         const no = nextNo('RE', d.docs.map((x) => x.no));
         const receipt: Doc = { ...inv, id: uid('re'), no, kind: 'receipt', date: TODAY, due: TODAY, status: 'paid', paid: netOf(inv.lines, inv.wht), ref: inv.no };
@@ -247,7 +266,10 @@ export function useStore() {
       receivePO: (id: string) =>
       mut((d) => {
         const po = d.docs.find((x) => x.id === id);
-        if (!po) return d;
+        if (!po || po.kind !== 'po' || po.received || po.status === 'converted') {
+          notify('ใบสั่งซื้อนี้รับสินค้าแล้ว', 'bad');
+          return d;
+        }
         notify(`รับสินค้าตามใบสั่งซื้อ ${po.no} เข้าคลังแล้ว`);
         return log({
           ...d,
@@ -262,13 +284,16 @@ export function useStore() {
       billFromPO: (id: string) =>
       mut((d) => {
         const po = d.docs.find((x) => x.id === id);
-        if (!po) return d;
+        if (!po || po.kind !== 'po' || !po.received || po.status === 'converted') {
+          notify('ใบสั่งซื้อนี้ยังสร้างบิลไม่ได้', 'bad');
+          return d;
+        }
         const c = d.contacts.find((x) => x.id === po.contactId);
         const no = nextNo('BL', d.docs.map((x) => x.no));
         const amount = netOf(po.lines, po.wht);
         const needs = amount >= d.settings.threshold;
         const bill: Doc = { ...po, id: uid('bl'), no, kind: 'bill', date: TODAY, due: addDays(TODAY, c?.credit ?? 30), status: needs ? 'pending' : 'open', paid: 0, ref: po.no };
-        notify(needs ? `ตั้งหนี้ ${no} และส่งเข้าอนุมัติ (เกินเกณฑ์ ฿50,000)` : `ตั้งหนี้ ${no} เรียบร้อย`);
+        notify(needs ? `ตั้งหนี้ ${no} และส่งเข้าอนุมัติ (เกินเกณฑ์ ${thb(d.settings.threshold)})` : `ตั้งหนี้ ${no} เรียบร้อย`);
         return log({
           ...d,
           docs: [bill, ...d.docs.map((x) => x.id === id ? { ...x, status: 'converted' } : x)],
@@ -281,7 +306,10 @@ export function useStore() {
       payBill: (id: string) =>
       mut((d) => {
         const bill = d.docs.find((x) => x.id === id);
-        if (!bill) return d;
+        if (!bill || bill.kind !== 'bill' || ['pending', 'rejected', 'paid'].includes(bill.status) || dueOf(bill) <= 0.5) {
+          notify('บิลนี้ยังจ่ายไม่ได้หรือชำระแล้ว', 'bad');
+          return d;
+        }
         const amount = dueOf(bill);
         notify(`จ่ายชำระ ${bill.no} จำนวน ${amount.toLocaleString()} บาท`);
         return log({
@@ -295,7 +323,10 @@ export function useStore() {
       submitExpense: (id: string) =>
       mut((d) => {
         const e = d.expenses.find((x) => x.id === id);
-        if (!e) return d;
+        if (!e || e.status !== 'draft') {
+          notify('รายการเบิกนี้ส่งอนุมัติแล้ว', 'bad');
+          return d;
+        }
         notify(`ส่งรายการเบิก ${e.no} เข้าอนุมัติแล้ว`);
         return log({
           ...d,
@@ -307,7 +338,10 @@ export function useStore() {
       payExpense: (id: string) =>
       mut((d) => {
         const e = d.expenses.find((x) => x.id === id);
-        if (!e) return d;
+        if (!e || e.status !== 'approved') {
+          notify('รายการเบิกนี้ยังจ่ายคืนไม่ได้หรือจ่ายแล้ว', 'bad');
+          return d;
+        }
         notify(`จ่ายคืนพนักงานตามรายการ ${e.no} แล้ว`);
         return log({
           ...d,
@@ -319,7 +353,10 @@ export function useStore() {
       decide: (id: string, ok: boolean) =>
       mut((d) => {
         const a = d.approvals.find((x) => x.id === id);
-        if (!a) return d;
+        if (!a || a.status !== 'pending') {
+          notify('รายการนี้ถูกตัดสินแล้ว', 'bad');
+          return d;
+        }
         let next: AppData = { ...d, approvals: d.approvals.map((x) => x.id === id ? { ...x, status: ok ? 'approved' : 'rejected' } : x) };
         if (a.kind === 'bill') next = { ...next, docs: next.docs.map((x) => x.id === a.refId ? { ...x, status: ok ? 'open' : 'rejected' } : x) };
         if (a.kind === 'expense') next = { ...next, expenses: next.expenses.map((x) => x.id === a.refId ? { ...x, status: ok ? 'approved' : 'rejected' } : x) };
@@ -332,7 +369,10 @@ export function useStore() {
       payPayroll: (id: string) =>
       mut((d) => {
         const run = d.payroll.find((p) => p.id === id);
-        if (!run) return d;
+        if (!run || run.status !== 'approved') {
+          notify('งวดเงินเดือนนี้ยังจ่ายไม่ได้หรือจ่ายแล้ว', 'bad');
+          return d;
+        }
         const t = payTotals(run);
         notify(`จ่ายเงินเดือนงวด ${monthTH(run.period)} เรียบร้อย`);
         return log({
@@ -356,7 +396,10 @@ export function useStore() {
       submitPayroll: (id: string) =>
       mut((d) => {
         const run = d.payroll.find((p) => p.id === id);
-        if (!run) return d;
+        if (!run || run.status !== 'draft') {
+          notify('งวดเงินเดือนนี้ส่งอนุมัติแล้ว', 'bad');
+          return d;
+        }
         notify(`ส่งงวดเงินเดือน ${monthTH(run.period)} เข้าอนุมัติ`);
         return log({
           ...d,
@@ -369,7 +412,10 @@ export function useStore() {
       matchTxn: (id: string) =>
       mut((d) => {
         const t = d.bankTxns.find((x) => x.id === id);
-        if (!t) return d;
+        if (!t || t.matched) {
+          notify('รายการธนาคารนี้จับคู่แล้ว', 'bad');
+          return d;
+        }
         const pool = d.docs.filter((x) => x.kind === 'invoice' || x.kind === 'bill');
         const best = pool.sort((a, b) =>
         Math.abs((a.kind === 'bill' ? -1 : 1) * netOf(a.lines, a.wht) - t.amount) -
@@ -380,7 +426,15 @@ export function useStore() {
       }),
 
       unmatchTxn: (id: string) =>
-      mut((d) => ({ ...d, bankTxns: d.bankTxns.map((x) => x.id === id ? { ...x, matched: false, ref: undefined } : x) })),
+      mut((d) => {
+        const transaction = d.bankTxns.find((x) => x.id === id);
+        if (!transaction?.matched) {
+          notify('รายการธนาคารนี้ไม่ได้ถูกจับคู่', 'bad');
+          return d;
+        }
+        notify('ยกเลิกการจับคู่แล้ว');
+        return log({ ...d, bankTxns: d.bankTxns.map((x) => x.id === id ? { ...x, matched: false, ref: undefined } : x) }, 'ยกเลิกการจับคู่รายการธนาคาร', 'ธนาคาร');
+      }),
 
       reconcile: (accountId: string) =>
       mut((d) => {
@@ -397,6 +451,11 @@ export function useStore() {
       postJournal: (id: string) =>
       mut((d) => {
         const j = d.journals.find((x) => x.id === id);
+        const approval = d.approvals.find((item) => item.refId === id);
+        if (!j || j.status !== 'draft' || approval) {
+          notify(approval?.status === 'pending' ? 'สมุดรายวันนี้ยังรออนุมัติ' : 'สมุดรายวันนี้ลงบัญชีแล้วหรือไม่พร้อมลงบัญชี', 'bad');
+          return d;
+        }
         notify(`ผ่านรายการสมุดรายวัน ${j?.no ?? ''} แล้ว`);
         return log({
           ...d,
@@ -421,6 +480,11 @@ export function useStore() {
 
       disposeAsset: (id: string) =>
       mut((d) => {
+        const asset = d.assets.find((item) => item.id === id);
+        if (!asset || asset.status !== 'active') {
+          notify('สินทรัพย์นี้ถูกจำหน่ายแล้ว', 'bad');
+          return d;
+        }
         notify('บันทึกการจำหน่ายสินทรัพย์แล้ว');
         return log({ ...d, assets: d.assets.map((a) => a.id === id ? { ...a, status: 'disposed' } : a) }, 'จำหน่ายสินทรัพย์ถาวร', 'สินทรัพย์');
       }),
