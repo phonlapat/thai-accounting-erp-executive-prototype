@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircleIcon, BarChart3Icon, BookOpenIcon, Building2Icon, BoxesIcon, CheckCircle2Icon, ChevronsLeftIcon,
-  ChevronsRightIcon, ClipboardCheckIcon, FileTextIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
-  LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShoppingCartIcon, UsersIcon, WalletIcon, XIcon } from
+  ChevronsRightIcon, ClipboardCheckIcon, EyeIcon, EyeOffIcon, FileTextIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
+  LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShieldCheckIcon, ShoppingCartIcon, UsersIcon, WalletIcon, XIcon } from
 'lucide-react';
 import {
   MONTH, STATUS, TODAY, WH, baseOf, dateTH, docStatus, dueOf, monthTH, netOf, num, payTotals, thb, vatOf, whtOf } from
@@ -14,7 +14,7 @@ import {
   unmatchedList, useStore, vatReport, whtRows } from
 './store';
 import type { Actions } from './store';
-import { Button, Card, CardHead, DataTable, KpiStrip, Panels, cx } from './ui';
+import { Button, Card, CardHead, ConfirmDialog, DataTable, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
 
 interface Kpi {label: string;sub?: string;value: string;tone?: Tone;hint?: string;}
@@ -22,7 +22,7 @@ interface Mod {
   id: string;th: string;en: string;group: string;desc: string;
   icon: React.ComponentType<{className?: string;}>;
   kpis: (d: AppData) => Kpi[];
-  panels?: (d: AppData, a: Actions) => PanelSpec[];
+  panels?: (d: AppData, a: Actions, navigate: (id: string) => void) => PanelSpec[];
   title?: string;sub?: string;
   cols?: Col[];
   rows?: (d: AppData) => RowData[];
@@ -68,7 +68,7 @@ const CORE: Mod[] = [
   { label: 'กำไรสุทธิ', value: thb(pl(d).net, true), tone: pl(d).net >= 0 ? 'ok' : 'bad' },
   { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' }],
 
-  panels: (d, a) => {
+  panels: (d, a, navigate) => {
     const history = series(d);
     const s = history.slice(-3);
     const profit = history.slice(-5);
@@ -100,21 +100,26 @@ const CORE: Mod[] = [
       title: 'รออนุมัติ', wide: true,
       lines: pendingList(d).slice(0, 4).map((x) => ({
         left: APPROVAL_TH[x.kind], sub: `${x.refNo} · ${dateTH(x.date)}`, right: thb(x.amount),
-        actions: [{ label: 'อนุมัติ', run: () => a.decide(x.id, true) }, { label: 'ปฏิเสธ', run: () => a.decide(x.id, false), danger: true }]
+        actions: [{ label: 'อนุมัติ', run: () => a.decide(x.id, true),
+          confirm: { title: `อนุมัติ ${x.refNo}?`, description: `ระบบจะอนุมัติยอด ${thb(x.amount)} และปลดล็อกขั้นตอนถัดไป`, confirmLabel: 'ยืนยันอนุมัติ' } }, { label: 'ปฏิเสธ', run: () => a.decide(x.id, false), danger: true,
+          confirm: { title: `ปฏิเสธ ${x.refNo}?`, description: 'รายการจะถูกส่งกลับและขั้นตอนถัดไปจะไม่ถูกดำเนินการ', confirmLabel: 'ยืนยันปฏิเสธ' } }]
       })),
-      empty: 'ไม่มีรายการค้างอนุมัติ'
+      empty: 'ไม่มีรายการค้างอนุมัติ',
+      action: { label: 'ดูทั้งหมด', run: () => navigate('approvals'), variant: 'ghost' }
     },
     {
       title: 'ต้องจัดการ',
       lines: [
       ...overdueList(d).slice(0, 2).map((x) => ({
         left: `${x.no} · ลูกหนี้เกินกำหนด`,
-        sub: `${Math.floor((Date.parse(TODAY) - Date.parse(x.due)) / 864e5)} วัน · ${contactName(d, x.contactId)}`, tone: 'bad' as Tone, right: thb(dueOf(x))
+        sub: `${Math.floor((Date.parse(TODAY) - Date.parse(x.due)) / 864e5)} วัน · ${contactName(d, x.contactId)}`, tone: 'bad' as Tone, right: thb(dueOf(x)),
+        actions: [{ label: 'เปิด', run: () => navigate('sales'), variant: 'ghost' as const }]
       })),
       ...lowStock(d).slice(0, 1).map((p2) => ({
-        left: `${p2.code} · สต๊อกต่ำ`, sub: p2.nameTh, tone: 'bad' as Tone, right: `${num(stockOf(p2))} / ${num(p2.reorder)}`
+        left: `${p2.code} · สต๊อกต่ำ`, sub: p2.nameTh, tone: 'bad' as Tone, right: `${num(stockOf(p2))} / ${num(p2.reorder)}`,
+        actions: [{ label: 'เปิด', run: () => navigate('inventory'), variant: 'ghost' as const }]
       })),
-      ...(nextTax ? [{ left: `${nextTax.form} · ยื่นภาษี`, sub: 'ครบกำหนด', tone: 'warn' as Tone, right: dateTH(nextTax.due) }] : [])],
+      ...(nextTax ? [{ left: `${nextTax.form} · ยื่นภาษี`, sub: 'ครบกำหนด', tone: 'warn' as Tone, right: dateTH(nextTax.due), actions: [{ label: 'เปิด', run: () => navigate('tax'), variant: 'ghost' as const }] }] : [])],
       empty: 'ไม่มีรายการเร่งด่วน'
     }];
 
@@ -139,7 +144,8 @@ const CORE: Mod[] = [
 
   actions: (r, a) => {
     if (r.kind === 'quote' && r.status !== 'converted') return [{ label: 'สร้างใบแจ้งหนี้', run: () => a.convertQuote(r.id) }];
-    if (r.kind === 'invoice' && N(r.out) > 0.5) return [{ label: 'รับชำระ', run: () => a.receivePayment(r.id) }];
+    if (r.kind === 'invoice' && N(r.out) > 0.5) return [{ label: 'รับชำระ', run: () => a.receivePayment(r.id),
+      confirm: { title: `รับชำระ ${String(r.no)}?`, description: `ระบบจะบันทึกรับเงิน ${thb(N(r.out))} และออกใบเสร็จรับเงิน`, confirmLabel: 'ยืนยันรับชำระ' } }];
     return [];
   }
 },
@@ -161,9 +167,12 @@ const CORE: Mod[] = [
   { key: 'status', label: 'สถานะ', options: opts(d.docs.filter((x) => x.kind === 'po' || x.kind === 'bill').map((x) => x.status)) }],
 
   actions: (r, a) => {
-    if (r.kind === 'po' && r.received === 'n' && r.status !== 'converted') return [{ label: 'รับสินค้า', run: () => a.receivePO(r.id) }];
-    if (r.kind === 'po' && r.received === 'y' && r.status !== 'converted') return [{ label: 'สร้างบิล', run: () => a.billFromPO(r.id) }];
-    if (r.kind === 'bill' && r.status !== 'pending' && N(r.out) > 0.5) return [{ label: 'จ่ายเงิน', run: () => a.payBill(r.id) }];
+    if (r.kind === 'po' && r.received === 'n' && r.status !== 'converted') return [{ label: 'รับสินค้า', run: () => a.receivePO(r.id),
+      confirm: { title: `รับสินค้าตาม ${String(r.no)}?`, description: 'จำนวนสินค้าจะถูกเพิ่มเข้าคลังตามใบสั่งซื้อนี้', confirmLabel: 'ยืนยันรับสินค้า' } }];
+    if (r.kind === 'po' && r.received === 'y' && r.status !== 'converted') return [{ label: 'สร้างบิล', run: () => a.billFromPO(r.id),
+      confirm: { title: `สร้างบิลจาก ${String(r.no)}?`, description: 'ระบบจะตั้งหนี้เจ้าหนี้และส่งอนุมัติเมื่อยอดเกินเกณฑ์', confirmLabel: 'ยืนยันสร้างบิล' } }];
+    if (r.kind === 'bill' && r.status !== 'pending' && N(r.out) > 0.5) return [{ label: 'จ่ายเงิน', run: () => a.payBill(r.id),
+      confirm: { title: `จ่าย ${String(r.no)}?`, description: `ระบบจะบันทึกเงินออก ${thb(N(r.out))} และปิดยอดเจ้าหนี้`, confirmLabel: 'ยืนยันจ่ายเงิน' } }];
     return [];
   }
 },
@@ -194,7 +203,8 @@ const CORE: Mod[] = [
   filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(d.expenses.map((e) => e.status)) }],
   actions: (r, a) => {
     if (r.status === 'draft') return [{ label: 'ส่งอนุมัติ', run: () => a.submitExpense(r.id) }];
-    if (r.status === 'approved') return [{ label: 'จ่ายคืน', run: () => a.payExpense(r.id) }];
+    if (r.status === 'approved') return [{ label: 'จ่ายคืน', run: () => a.payExpense(r.id),
+      confirm: { title: `จ่ายคืน ${String(r.no)}?`, description: `ระบบจะบันทึกเงินออก ${thb(N(r.amount))} จากเงินสดย่อย`, confirmLabel: 'ยืนยันจ่ายคืน' } }];
     return [];
   }
 },
@@ -223,7 +233,9 @@ const CORE: Mod[] = [
   })),
   filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(d.approvals.map((x) => x.status)) }],
   actions: (r, a) => r.status === 'pending' ?
-  [{ label: 'อนุมัติ', run: () => a.decide(r.id, true) }, { label: 'ปฏิเสธ', run: () => a.decide(r.id, false), danger: true }] :
+  [{ label: 'อนุมัติ', run: () => a.decide(r.id, true),
+    confirm: { title: `อนุมัติ ${String(r.refNo ?? 'รายการนี้')}?`, description: `ระบบจะอนุมัติยอด ${thb(N(r.amount))} และปลดล็อกขั้นตอนถัดไป`, confirmLabel: 'ยืนยันอนุมัติ' } }, { label: 'ปฏิเสธ', run: () => a.decide(r.id, false), danger: true,
+    confirm: { title: `ปฏิเสธ ${String(r.refNo ?? 'รายการนี้')}?`, description: 'รายการจะถูกส่งกลับและขั้นตอนถัดไปจะไม่ถูกดำเนินการ', confirmLabel: 'ยืนยันปฏิเสธ' } }] :
   []
 }];
 
@@ -336,7 +348,8 @@ const MASTER: Mod[] = [
     ['กระทบยอดถึง', b.reconciled ? dateTH(b.reconciled) : 'ยังไม่เคยกระทบยอด'],
     ['รายการรอจับคู่', `${d.bankTxns.filter((t) => t.accountId === b.id && !t.matched).length} รายการ`]] as
     Array<[string, string, boolean?]>,
-    action: { label: `กระทบยอดถึง ${dateTH(TODAY)}`, run: () => a.reconcile(b.id) }
+    action: { label: `กระทบยอดถึง ${dateTH(TODAY)}`, run: () => a.reconcile(b.id),
+      confirm: { title: `กระทบยอด ${b.nameTh}?`, description: 'ระบบจะบันทึกวันที่กระทบยอดเมื่อรายการทั้งหมดถูกจับคู่แล้ว', confirmLabel: 'ยืนยันกระทบยอด' } }
   })),
   title: 'รายการธนาคาร',
   cols: [
@@ -356,7 +369,8 @@ const MASTER: Mod[] = [
   { key: 'status', label: 'สถานะ', options: opts(['matched', 'unmatched']) }],
 
   actions: (r, a) => r.status === 'matched' ?
-  [{ label: 'ยกเลิก', run: () => a.unmatchTxn(r.id) }] :
+  [{ label: 'ยกเลิกจับคู่', run: () => a.unmatchTxn(r.id), danger: true,
+    confirm: { title: 'ยกเลิกการจับคู่?', description: 'รายการธนาคารนี้จะกลับไปอยู่ในรายการรอตรวจสอบ', confirmLabel: 'ยืนยันยกเลิก' } }] :
   [{ label: 'จับคู่', run: () => a.matchTxn(r.id) }]
 },
 {
@@ -383,7 +397,8 @@ const MASTER: Mod[] = [
     {
       title: 'ปิดงวด', sub: `ปิดแล้วถึง ${dateTH(d.settings.closedThrough)}`, wide: true,
       lines: checks.map((c) => ({ left: c.left, sub: c.hint, status: c.ok ? 'posted' : 'pending' })),
-      action: { label: `ปิดงวดถึง ${dateTH(TODAY)}`, run: a.closeMonth, disabled: checks.some((c) => !c.ok) },
+      action: { label: `ปิดงวดถึง ${dateTH(TODAY)}`, run: a.closeMonth, disabled: checks.some((c) => !c.ok),
+        confirm: { title: 'ปิดงวดบัญชี?', description: 'หลังปิดงวด รายการในช่วงเวลานี้ควรถูกแก้ไขผ่านรายการปรับปรุงเท่านั้น', confirmLabel: 'ยืนยันปิดงวด' } },
       note: 'ต้องเคลียร์รายการค้างให้ครบก่อนจึงจะปิดงวดได้ — เป็นการควบคุมภายในก่อนออกงบการเงิน'
     },
     {
@@ -412,7 +427,8 @@ const MASTER: Mod[] = [
   { key: 'status', label: 'สถานะ', options: opts(['draft', 'posted']) },
   { key: 'source', label: 'ที่มา', options: Array.from(new Set(ledger(d).map((j) => j.source))).map((s) => ({ value: s, label: s })) }],
 
-  actions: (r, a) => r.status === 'draft' ? [{ label: 'ลงบัญชี', run: () => a.postJournal(r.id) }] : []
+  actions: (r, a) => r.status === 'draft' ? [{ label: 'ลงบัญชี', run: () => a.postJournal(r.id),
+    confirm: { title: `ลงบัญชี ${String(r.no)}?`, description: 'รายการนี้จะถูกผ่านเข้าบัญชีแยกประเภทและงบทดลอง', confirmLabel: 'ยืนยันลงบัญชี' } }] : []
 }];
 
 
@@ -505,7 +521,8 @@ const FINANCE: Mod[] = [
   filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(d.payroll.map((p) => p.status)) }],
   actions: (r, a) => {
     if (r.status === 'draft') return [{ label: 'ส่งอนุมัติ', run: () => a.submitPayroll(r.id) }];
-    if (r.status === 'approved') return [{ label: 'จ่ายเงินเดือน', run: () => a.payPayroll(r.id) }];
+    if (r.status === 'approved') return [{ label: 'จ่ายเงินเดือน', run: () => a.payPayroll(r.id),
+      confirm: { title: `จ่ายเงินเดือน ${String(r.periodTh)}?`, description: `ระบบจะบันทึกเงินออกสุทธิ ${thb(N(r.net))} และผ่านรายการบัญชี`, confirmLabel: 'ยืนยันจ่ายเงินเดือน' } }];
     return [];
   },
   panels: (d, a) => [{
@@ -544,7 +561,8 @@ const FINANCE: Mod[] = [
     perMonth: depPerMonth(x), book: x.status === 'active' ? bookValue(x) : 0, status: x.status
   })),
   filters: () => [{ key: 'status', label: 'สถานะ', options: opts(['active', 'disposed']) }],
-  actions: (r, a) => r.status === 'active' ? [{ label: 'บันทึกจำหน่าย', run: () => a.disposeAsset(r.id), danger: true }] : []
+  actions: (r, a) => r.status === 'active' ? [{ label: 'บันทึกจำหน่าย', run: () => a.disposeAsset(r.id), danger: true,
+    confirm: { title: `จำหน่าย ${String(r.code ?? 'สินทรัพย์')}?`, description: 'สินทรัพย์จะถูกเปลี่ยนเป็นสถานะจำหน่ายและหยุดคำนวณค่าเสื่อมราคา', confirmLabel: 'ยืนยันจำหน่าย' } }] : []
 },
 {
   id: 'projects', th: 'โครงการและงบประมาณ', en: 'Projects', group: 'ปฏิบัติการ', icon: PieChartIcon,
@@ -663,8 +681,8 @@ function Nav({ active, collapsed, onPick }: {active: string;collapsed: boolean;o
                   onClick={() => onPick(m.id)}
                   title={collapsed ? m.th : undefined}
                   aria-current={on ? 'page' : undefined}
-                  className={cx('flex min-h-10 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400',
-                  on ? 'bg-blue-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white',
+                  className={cx('flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400',
+                  on ? 'bg-blue-700 text-white' : 'text-blue-100/80 hover:bg-slate-800 hover:text-white',
                   collapsed && 'justify-center px-0')}>
 
                     <Icon className="h-4 w-4 shrink-0" />
@@ -684,20 +702,60 @@ function Nav({ active, collapsed, onPick }: {active: string;collapsed: boolean;o
 
 interface DemoSession { email: string; }
 
+const COLLAPSED_KEY = 'thai-erp-sidebar-collapsed';
+
+function moduleFromLocation() {
+  const id = window.location.hash.replace(/^#\/?/, '');
+  return MODULES.some((item) => item.id === id) ? id : 'dashboard';
+}
+
+function readCollapsed() {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
 function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () => void;}) {
-  const { data, actions, toasts } = useStore();
-  const [active, setActive] = useState('dashboard');
-  const [collapsed, setCollapsed] = useState(false);
+  const { data, actions, toasts, storageIssue } = useStore();
+  const [active, setActive] = useState(moduleFromLocation);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   const [open, setOpen] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const closeMenuRef = useRef<HTMLButtonElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const pageTitleRef = useRef<HTMLHeadingElement>(null);
   const m = useMemo(() => MODULES.find((x) => x.id === active) ?? MODULES[0], [active]);
   const pending = pendingList(data).length;
 
   const go = (id: string) => {
+    if (!MODULES.some((item) => item.id === id)) return;
+    if (window.location.hash !== `#${id}`) window.history.pushState(null, '', `#${id}`);
     setActive(id);
     setOpen(false);
     window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    window.requestAnimationFrame(() => pageTitleRef.current?.focus());
   };
+
+  useEffect(() => {
+    const onHistory = () => setActive(moduleFromLocation());
+    window.addEventListener('popstate', onHistory);
+    window.addEventListener('hashchange', onHistory);
+    return () => {
+      window.removeEventListener('popstate', onHistory);
+      window.removeEventListener('hashchange', onHistory);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.title = `${m.th} | Siam ERP`;
+  }, [m.th]);
+
+  useEffect(() => {
+    try { localStorage.setItem(COLLAPSED_KEY, String(collapsed)); } catch { /* preference storage is optional */ }
+  }, [collapsed]);
 
   useEffect(() => {
     if (!open) return;
@@ -705,7 +763,17 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
     document.body.style.overflow = 'hidden';
     closeMenuRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') {
+        setOpen(false);
+        window.requestAnimationFrame(() => menuButtonRef.current?.focus());
+      }
+      if (event.key !== 'Tab' || !drawerRef.current) return;
+      const focusable = Array.from(drawerRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -715,16 +783,17 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
   }, [open]);
 
   const resetDemo = () => {
-    if (window.confirm('คืนข้อมูลตัวอย่างทั้งหมด?')) actions.reset();
+    actions.reset();
+    setConfirmReset(false);
   };
 
-  const brand =
+  const brand = (compact: boolean) =>
   <div className="flex items-center gap-2.5 px-3 py-3.5">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-700 text-[13px] font-bold text-white">ส</span>
-      {!collapsed ?
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-[14px] font-bold text-white shadow-[0_8px_20px_-12px_rgba(37,99,235,0.9)]">ส</span>
+      {!compact ?
     <div className="min-w-0">
-          <p className="truncate text-[12.5px] font-semibold text-white">Siam ERP</p>
-          <p className="truncate text-[10.5px] text-slate-400">ข้อมูลสาธิต</p>
+          <p className="truncate text-[13px] font-semibold text-white">Siam ERP</p>
+          <p className="truncate text-[10.5px] text-slate-400">{data.company.nameTh.replace(' (ข้อมูลสาธิต)', '')}</p>
         </div> :
     null}
     </div>;
@@ -732,13 +801,15 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
   return (
     <div className="flex min-h-screen w-full bg-slate-50 text-slate-900">
-      <aside className={cx('sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-800 bg-slate-900 lg:flex', collapsed ? 'w-[68px]' : 'w-[250px]')}>
-        {brand}
+      <button type="button" onClick={() => document.getElementById('main-content')?.focus()} className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg focus:translate-y-0">ข้ามไปเนื้อหา</button>
+      <aside className={cx('sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-800 bg-slate-950 lg:flex', collapsed ? 'w-[72px]' : 'w-[260px]')}>
+        {brand(collapsed)}
         <Nav active={active} collapsed={collapsed} onPick={go} />
         <div className="border-t border-slate-800 p-2">
           <button
             type="button"
             onClick={() => setCollapsed(!collapsed)}
+            aria-label={collapsed ? 'ขยายเมนู' : 'ย่อเมนู'}
             className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
 
             {collapsed ? <ChevronsRightIcon className="h-4 w-4" /> : <ChevronsLeftIcon className="h-4 w-4" />}
@@ -751,16 +822,17 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
         <div className="fixed inset-0 z-50 flex lg:hidden">
             <button
             type="button" aria-label="ปิดเมนู" className="erp-fade-in absolute inset-0 bg-slate-900/50"
-            onClick={() => setOpen(false)} />
+            onClick={() => { setOpen(false); window.requestAnimationFrame(() => menuButtonRef.current?.focus()); }} />
 
             <aside
-            className="erp-drawer-in relative flex h-full w-[258px] flex-col bg-slate-900"
+            ref={drawerRef}
+            className="erp-drawer-in relative flex h-full w-[272px] flex-col bg-slate-950 shadow-[18px_0_50px_-28px_rgba(15,23,42,0.9)]"
             role="dialog" aria-modal="true" aria-label="เมนูหลัก"
             >
 
               <div className="flex items-center justify-between">
-                {brand}
-                <button ref={closeMenuRef} type="button" onClick={() => setOpen(false)} aria-label="ปิดเมนู" className="mr-2 flex h-10 w-10 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
+                {brand(false)}
+                <button ref={closeMenuRef} type="button" onClick={() => { setOpen(false); window.requestAnimationFrame(() => menuButtonRef.current?.focus()); }} aria-label="ปิดเมนู" className="mr-2 flex h-11 w-11 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
                   <XIcon className="h-4 w-4" />
                 </button>
               </div>
@@ -770,30 +842,31 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
         null}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex min-h-12 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:px-4">
-          <button type="button" onClick={() => setOpen(true)} aria-label="เปิดเมนู" className="flex h-10 w-10 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden">
+        <header className="sticky top-0 z-30 flex min-h-14 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:px-4 lg:min-h-16 lg:px-6">
+          <button ref={menuButtonRef} type="button" onClick={() => setOpen(true)} aria-label="เปิดเมนู" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden">
             <MenuIcon className="h-4 w-4" />
           </button>
-          <div className="min-w-0">
-            <p className="truncate text-[15px] font-semibold text-slate-900">{m.th}</p>
+          <div className="min-w-0 flex-1">
+            <h1 ref={pageTitleRef} tabIndex={-1} className="truncate text-[16px] font-semibold tracking-[-0.02em] text-slate-950 outline-none lg:text-[18px]">{m.th}</h1>
+            <p className="hidden max-w-[72ch] truncate text-[11px] text-slate-500 xl:block">{m.desc}</p>
           </div>
-          <div className="ml-auto flex items-center gap-1.5">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <button
               type="button" onClick={() => go('approvals')}
               aria-label={`งานรออนุมัติ ${pending} รายการ`}
-              className={cx('min-h-9 rounded-lg px-2.5 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600', pending ? 'bg-amber-50 text-amber-800' : 'bg-slate-100 text-slate-600')}>
+              className={cx('inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 sm:min-h-9', pending ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700')}>
 
-              อนุมัติ {pending}
+              <ClipboardCheckIcon className="h-4 w-4" /><span className="hidden sm:inline">อนุมัติ</span><span className="tabular-nums">{pending}</span>
             </button>
-            <Button size="sm" icon={RotateCcwIcon} onClick={resetDemo} className="hidden sm:inline-flex">รีเซ็ต</Button>
-            <Button size="sm" icon={LogOutIcon} onClick={onSignOut} className="px-2" ariaLabel={`ออกจากระบบ ${session.email}`}>ออก</Button>
+            <Button size="sm" icon={RotateCcwIcon} onClick={() => setConfirmReset(true)} className="hidden sm:inline-flex">รีเซ็ต</Button>
+            <Button size="sm" icon={LogOutIcon} onClick={onSignOut} className="px-2 sm:px-2.5" ariaLabel={`ออกจากระบบ ${session.email}`} title={session.email}><span className="hidden sm:inline">ออก</span></Button>
           </div>
         </header>
 
-        <main className="min-w-0 flex-1 px-4 py-3 lg:px-6 lg:py-4">
-          <div key={m.id} className="erp-view-in space-y-3">
+        <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 py-4 outline-none lg:px-6 lg:py-5">
+          <div key={m.id} className="erp-view-in mx-auto max-w-[1600px] space-y-4">
             <KpiStrip items={m.kpis(data)} />
-            {m.panels ? <Panels items={m.panels(data, actions)} /> : null}
+            {m.panels ? <Panels items={m.panels(data, actions, go)} /> : null}
 
             {m.cols && m.rows ?
             <Card>
@@ -810,7 +883,10 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
         </main>
 
         <footer className="border-t border-slate-200 px-4 py-3 text-[11px] text-slate-500 lg:px-6">
-          ข้อมูลสาธิต · บันทึกในเบราว์เซอร์นี้
+          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-1.5">
+            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : 'ข้อมูลสาธิต · บันทึกอัตโนมัติในเบราว์เซอร์นี้'}</span>
+            <span>ข้อมูล ณ {dateTH(TODAY)} · ปิดงวดถึง {dateTH(data.settings.closedThrough)}</span>
+          </div>
         </footer>
       </div>
 
@@ -827,6 +903,14 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmReset}
+        title="คืนค่าข้อมูลสาธิต?"
+        description="การเปลี่ยนแปลงทั้งหมดในเบราว์เซอร์นี้จะถูกลบและกลับไปเป็นข้อมูลเริ่มต้น"
+        confirmLabel="คืนค่าเริ่มต้น"
+        onConfirm={resetDemo}
+        onClose={() => setConfirmReset(false)} />
     </div>);
 
 }
@@ -837,60 +921,86 @@ function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    document.title = 'เข้าสู่ระบบ | Siam ERP';
+  }, []);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!email.includes('@')) {
-      setError('กรอกอีเมลให้ถูกต้อง');
+      setError('กรุณาตรวจสอบอีเมลแล้วลองอีกครั้ง');
       return;
     }
     if (password.length < 4) {
-      setError('รหัสผ่านอย่างน้อย 4 ตัว');
+      setError('รหัสผ่านต้องมีอย่างน้อย 4 ตัวอักษร');
       return;
     }
     onEnter(email.trim());
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4 py-10">
-      <section className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-sm sm:p-8" aria-labelledby="sign-in-title">
-        <div className="mb-6 flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-700 text-base font-bold text-white">ส</span>
-          <div>
-            <p className="font-semibold text-slate-950">Siam ERP</p>
-            <p className="text-[12px] text-slate-500">ระบบสาธิต</p>
-          </div>
+    <main className="grid min-h-screen bg-white lg:grid-cols-[minmax(0,1.05fr)_minmax(460px,0.95fr)]">
+      <section className="relative hidden overflow-hidden bg-slate-950 px-12 py-10 text-white lg:flex lg:flex-col" aria-label="Siam ERP">
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
+          <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[11px] text-slate-400">ระบบบัญชีและการดำเนินงาน</p></div>
         </div>
-        <h1 id="sign-in-title" className="text-2xl font-semibold tracking-tight text-slate-950">เข้าสู่ระบบ</h1>
-        <form className="mt-5 space-y-4" onSubmit={submit}>
+        <div className="my-auto max-w-xl pb-16">
+          <h2 className="text-balance text-[clamp(2rem,3.8vw,3.75rem)] font-semibold leading-[1.08] tracking-[-0.035em]">เห็นภาพการเงิน<br />ตัดสินใจได้ทันที</h2>
+          <p className="mt-5 max-w-[52ch] text-[15px] leading-7 text-slate-300">ยอดขาย กระแสเงินสด ภาษี และงานอนุมัติ เชื่อมอยู่ในพื้นที่ทำงานเดียว</p>
+        </div>
+        <div className="flex items-center gap-2 text-[12px] text-slate-400"><ShieldCheckIcon className="h-4 w-4 text-blue-400" />ข้อมูลบนหน้านี้เป็นข้อมูลสาธิต</div>
+      </section>
+
+      <section className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-10 sm:px-8" aria-labelledby="sign-in-title">
+        <div className="w-full max-w-md">
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-700 text-base font-bold text-white">ส</span>
+            <div><p className="font-semibold text-slate-950">Siam ERP</p><p className="text-[12px] text-slate-500">ระบบสาธิต</p></div>
+          </div>
+          <h1 id="sign-in-title" className="text-[28px] font-semibold tracking-[-0.03em] text-slate-950">เข้าสู่ระบบ</h1>
+          <p className="mt-1 text-[13px] text-slate-600">ใช้บัญชีองค์กรของคุณ</p>
+
+          <form className="mt-7 space-y-5" onSubmit={submit} noValidate>
           <label className="block">
             <span className="mb-1.5 block text-[13px] font-medium text-slate-700">อีเมล</span>
             <input
-              type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)}
-              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-950 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100"
+              type="email" inputMode="email" autoComplete="email" value={email} required aria-invalid={Boolean(error && !email.includes('@'))}
+              onChange={(event) => { setEmail(event.target.value); if (error) setError(''); }} placeholder="name@company.com"
+              className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-base text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-blue-700 focus:ring-2 focus:ring-blue-100 sm:text-[14px]"
             />
           </label>
           <label className="block">
             <span className="mb-1.5 block text-[13px] font-medium text-slate-700">รหัสผ่าน</span>
-            <input
-              type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)}
-              className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm text-slate-950 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100"
-            />
+            <span className="relative block">
+              <input
+                type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} required aria-invalid={Boolean(error && password.length < 4)}
+                onChange={(event) => { setPassword(event.target.value); if (error) setError(''); }}
+                className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 pr-12 text-base text-slate-950 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 sm:text-[14px]"
+              />
+              <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'} className="absolute inset-y-0 right-1 flex w-11 items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+                {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+              </button>
+            </span>
           </label>
-          {error ? <p className="text-[12px] text-rose-700" role="alert">{error}</p> : null}
-          <button type="submit" className="flex h-11 w-full items-center justify-center rounded-lg bg-blue-700 px-4 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+          {error ? <p className="flex items-center gap-2 text-[12.5px] text-rose-700" role="alert"><AlertCircleIcon className="h-4 w-4 shrink-0" />{error}</p> : null}
+          <button type="submit" className="flex h-12 w-full items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
             เข้าสู่ระบบ
           </button>
         </form>
-        <div className="my-5 flex items-center gap-3 text-[11px] text-slate-400" aria-hidden="true">
+        <div className="my-6 flex items-center gap-3 text-[11px] text-slate-400" aria-hidden="true">
           <span className="h-px flex-1 bg-slate-200" />หรือ<span className="h-px flex-1 bg-slate-200" />
         </div>
         <button
           type="button" onClick={() => onEnter('demo@sample.local')}
-          className="flex h-11 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-          ทดลองใช้ทันที
+          className="flex min-h-14 w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-left hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+          <span><span className="block text-sm font-semibold text-slate-900">ทดลองใช้ทันที</span><span className="block text-[11.5px] text-slate-500">ไม่ต้องกรอกข้อมูล</span></span>
+          <ChevronsRightIcon className="h-4 w-4 text-slate-500" />
         </button>
-        <p className="mt-4 text-center text-[11px] text-slate-500">ไม่ใช้ข้อมูลจริง</p>
+        <p className="mt-6 text-center text-[11px] leading-5 text-slate-500">ระบบสาธิต · ไม่ควรใช้กับข้อมูลจริง</p>
+        </div>
       </section>
     </main>
   );
@@ -905,19 +1015,42 @@ function readSession(): DemoSession | null {
   }
 }
 
-export function App() {
+function AppContent() {
   const [session, setSession] = useState<DemoSession | null>(() => readSession());
 
   const enter = (email: string) => {
     const next = { email };
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(next)); } catch { /* session still works in memory */ }
     setSession(next);
   };
 
   const leave = () => {
-    sessionStorage.removeItem(SESSION_KEY);
+    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session still ends in memory */ }
     setSession(null);
   };
 
   return session ? <Workbench session={session} onSignOut={leave} /> : <SignIn onEnter={enter} />;
+}
+
+interface ErrorBoundaryState {failed: boolean;}
+
+class ErrorBoundary extends React.Component<{children: React.ReactNode;}, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { failed: false };
+  static getDerivedStateFromError(): ErrorBoundaryState { return { failed: true }; }
+  componentDidCatch(error: Error, info: React.ErrorInfo) { console.error('Siam ERP render error', error, info); }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-10">
+      <section className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-[0_18px_55px_-30px_rgba(15,23,42,0.35)] sm:p-8" aria-labelledby="app-error-title">
+        <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-700"><AlertCircleIcon className="h-5 w-5" /></span>
+        <h1 id="app-error-title" className="mt-4 text-xl font-semibold text-slate-950">เปิดหน้านี้ไม่สำเร็จ</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-600">ลองโหลดหน้าใหม่ หากยังพบปัญหาให้คืนค่าข้อมูลสาธิตจากเบราว์เซอร์</p>
+        <button type="button" onClick={() => window.location.reload()} className="mt-6 h-11 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">โหลดใหม่</button>
+      </section>
+    </main>;
+  }
+}
+
+export function App() {
+  return <ErrorBoundary><AppContent /></ErrorBoundary>;
 }

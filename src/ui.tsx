@@ -1,6 +1,7 @@
 /* Workbench UI primitives: badges, cards, KPI strip, config-driven table and panels */
-import React, { useMemo, useState } from 'react';
-import { ArrowUpDownIcon, SearchIcon } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { AlertTriangleIcon, ArrowUpDownIcon, SearchIcon, XIcon } from 'lucide-react';
 import { STATUS, dateTH, num, thb } from './data';
 import type { Tone } from './data';
 
@@ -37,7 +38,7 @@ export function Button({
 
 
 
-}: {children?: React.ReactNode;onClick?: () => void;variant?: 'primary' | 'ghost' | 'danger';size?: 'sm' | 'md';icon?: React.ComponentType<{className?: string;}>;disabled?: boolean;className?: string;ariaLabel?: string;title?: string;}) {
+}: {children?: React.ReactNode;onClick?: () => void;variant?: 'primary' | 'ghost' | 'danger' | 'dangerSolid';size?: 'sm' | 'md';icon?: React.ComponentType<{className?: string;}>;disabled?: boolean;className?: string;ariaLabel?: string;title?: string;}) {
   return (
     <button
       type="button"
@@ -47,10 +48,11 @@ export function Button({
       title={title}
       className={cx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'min-h-9 px-2.5 py-1 text-[12px]' : 'min-h-10 px-3 py-1.5 text-[13px]',
+        size === 'sm' ? 'min-h-11 px-3 py-1 text-[13px] sm:min-h-9 sm:px-2.5 sm:text-[12px]' : 'min-h-11 px-3 py-1.5 text-[14px] sm:min-h-10 sm:text-[13px]',
         variant === 'primary' && 'border-blue-700 bg-blue-700 text-white hover:bg-blue-800',
         variant === 'ghost' && 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
         variant === 'danger' && 'border-rose-200 bg-white text-rose-700 hover:bg-rose-50',
+        variant === 'dangerSolid' && 'border-rose-700 bg-rose-700 text-white hover:bg-rose-800',
         className
       )}>
 
@@ -69,7 +71,7 @@ export function CardHead({ title, sub, action }: {title: string;sub?: string;act
     <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
       <div className="min-w-0">
         <h3 className="truncate text-[13px] font-semibold text-slate-900">{title}</h3>
-        {sub ? <p className="truncate text-[11px] text-slate-500">{sub}</p> : null}
+        {sub ? <p className="line-clamp-2 text-[11px] leading-4 text-slate-500 sm:truncate">{sub}</p> : null}
       </div>
       {action}
     </header>);
@@ -80,15 +82,15 @@ export function KpiStrip({ items }: {items: Array<{label: string;sub?: string;va
   return (
     <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
       {items.map((k, index) =>
-      <div key={k.label} className={cx('bg-white px-3.5 py-2.5', items.length % 2 === 1 && index === items.length - 1 && 'col-span-2 sm:col-span-1')}>
+      <div key={k.label} className={cx('min-w-0 bg-white px-3.5 py-3 sm:py-2.5', items.length % 2 === 1 && index === items.length - 1 && 'col-span-2 sm:col-span-1')}>
           <p className="truncate text-[11.5px] font-medium text-slate-600">
             {k.label}
           </p>
-          <p className={cx('mt-0.5 truncate text-[17px] font-semibold tabular-nums',
+          <p className={cx('mt-0.5 truncate text-[19px] font-semibold tracking-[-0.02em] tabular-nums sm:text-[18px]',
         k.tone === 'ok' ? 'text-emerald-700' : k.tone === 'bad' ? 'text-rose-700' : k.tone === 'warn' ? 'text-amber-700' : 'text-slate-900')}>
             {k.value}
           </p>
-          {k.hint ? <p className="truncate text-[11px] text-slate-500">{k.hint}</p> : null}
+          {k.sub || k.hint ? <p className="truncate text-[10.5px] text-slate-500">{k.sub ?? k.hint}</p> : null}
         </div>
       )}
     </div>);
@@ -115,8 +117,80 @@ export function Row({ label, value, strong }: {label: string;value: string;stron
 
 }
 
+/* ---------------- protected actions ---------------- */
+export interface ConfirmSpec {title: string;description: string;confirmLabel?: string;}
+export interface ActionSpec {label: string;run: () => void;danger?: boolean;confirm?: ConfirmSpec;variant?: 'primary' | 'ghost';disabled?: boolean;}
+
+export function ConfirmDialog({ open, title, description, confirmLabel = 'ยืนยัน', tone = 'danger', onConfirm, onClose }: {
+  open: boolean;title: string;description: string;confirmLabel?: string;tone?: 'danger' | 'primary';onConfirm: () => void;onClose: () => void;
+}) {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    cancelRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return createPortal(
+    <div className="erp-fade-in fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" className="erp-dialog-in w-full max-w-md rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] sm:p-6">
+        <div className="flex items-start gap-3">
+          <span className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', tone === 'danger' ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700')}>
+            <AlertTriangleIcon className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 id="confirm-title" className="text-[17px] font-semibold tracking-[-0.02em] text-slate-950">{title}</h2>
+            <p id="confirm-description" className="mt-1 text-[13px] leading-5 text-slate-600">{description}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+            <XIcon className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
+          <Button className="w-full sm:w-auto" variant={tone === 'danger' ? 'dangerSolid' : 'primary'} onClick={() => { onConfirm(); onClose(); }}>{confirmLabel}</Button>
+        </div>
+      </div>
+    </div>, document.body
+  );
+}
+
+function GuardedAction({ action, className }: {action: ActionSpec;className?: string;}) {
+  const [open, setOpen] = useState(false);
+  const confirmation = action.confirm ?? (action.danger ? {
+    title: `${action.label}รายการนี้?`,
+    description: 'โปรดตรวจสอบรายการก่อนยืนยัน การดำเนินการนี้จะเปลี่ยนสถานะของเอกสาร',
+    confirmLabel: action.label
+  } : undefined);
+  return (
+    <>
+      <Button className={className} size="sm" variant={action.danger ? 'danger' : action.variant ?? 'primary'} disabled={action.disabled} onClick={() => confirmation ? setOpen(true) : action.run()}>{action.label}</Button>
+      {confirmation ? <ConfirmDialog open={open} title={confirmation.title} description={confirmation.description} confirmLabel={confirmation.confirmLabel} tone={action.danger ? 'danger' : 'primary'} onConfirm={action.run} onClose={() => setOpen(false)} /> : null}
+    </>
+  );
+}
+
 /* ---------------- panels ---------------- */
-export interface PanelLine {left: string;sub?: string;right?: string;status?: string;tone?: Tone;actions?: Array<{label: string;run: () => void;danger?: boolean;}>;}
+export interface PanelLine {left: string;sub?: string;right?: string;status?: string;tone?: Tone;actions?: ActionSpec[];}
 export interface PanelBar {label: string;note?: string;value: number;max: number;tone?: Tone;}
 export interface PanelSignedChart {
   latestLabel: string;summary: string;change?: string;changePositive?: boolean;
@@ -128,7 +202,7 @@ export interface PanelSpec {
   bars?: PanelBar[];
   lines?: PanelLine[];
   signedChart?: PanelSignedChart;
-  action?: {label: string;run: () => void;disabled?: boolean;};
+  action?: ActionSpec;
   empty?: string;
 }
 
@@ -180,7 +254,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
           <CardHead
           title={p.title}
           sub={p.sub}
-          action={p.action ? <Button variant="primary" size="sm" onClick={p.action.run} disabled={p.action.disabled}>{p.action.label}</Button> : undefined} />
+          action={p.action ? <GuardedAction action={p.action} /> : undefined} />
 
           {p.bars?.length ?
         <ul className="space-y-2.5 px-4 py-3">
@@ -198,16 +272,16 @@ export function Panels({ items }: {items: PanelSpec[];}) {
           {p.lines?.length ?
         <ul className="divide-y divide-slate-200">
               {p.lines.map((l) =>
-          <li key={l.left + (l.sub ?? '')} className="flex flex-wrap items-center gap-2 px-4 py-2">
+          <li key={l.left + (l.sub ?? '')} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex sm:flex-wrap sm:gap-2 sm:py-2">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12.5px] text-slate-900">{l.left}</p>
-                    {l.sub ? <p className={cx('truncate text-[11px]', l.tone === 'bad' ? 'text-rose-600' : 'text-slate-500')}>{l.sub}</p> : null}
+                    <p className="line-clamp-2 text-[13px] leading-5 text-slate-900 sm:truncate sm:text-[12.5px] sm:leading-normal">{l.left}</p>
+                    {l.sub ? <p className={cx('line-clamp-2 text-[11.5px] leading-4 sm:truncate sm:text-[11px]', l.tone === 'bad' ? 'text-rose-600' : 'text-slate-500')}>{l.sub}</p> : null}
                   </div>
                   {l.right ? <span className="whitespace-nowrap text-[12.5px] font-medium tabular-nums text-slate-900">{l.right}</span> : null}
                   {l.status ? <Badge value={l.status} /> : null}
-                  {l.actions?.map((a) =>
-            <Button key={a.label} size="sm" variant={a.danger ? 'danger' : 'primary'} onClick={a.run}>{a.label}</Button>
-            )}
+                  {l.actions?.length ? <div className="col-span-2 flex justify-end gap-2 sm:contents">
+                    {l.actions.map((a) => <GuardedAction key={a.label} action={a} />)}
+                  </div> : null}
                 </li>
           )}
             </ul> :
@@ -230,7 +304,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
 export type CellFmt = 'text' | 'mono' | 'money' | 'num' | 'date' | 'status' | 'pct';
 export interface Col {key: string;header: string;fmt?: CellFmt;right?: boolean;total?: boolean;hide?: 'sm' | 'md' | 'lg';}
 export type RowData = Record<string, string | number | undefined> & {id: string;};
-export interface RowAction {label: string;run: () => void;danger?: boolean;}
+export type RowAction = ActionSpec;
 export interface FilterSpec {key: string;label: string;options: Array<{value: string;label: string;}>;}
 
 const HIDE = { sm: 'hidden sm:table-cell', md: 'hidden md:table-cell', lg: 'hidden lg:table-cell' };
@@ -276,18 +350,24 @@ export function DataTable({
 
   const totals = cols.filter((c) => c.total);
   const filtering = Boolean(q || Object.values(sel).some(Boolean));
+  const mobileCols = cols.filter((c) => !c.hide);
+  const primaryCol = mobileCols[0] ?? cols[0];
+  const statusCol = mobileCols.find((c) => c.fmt === 'status');
+  const valueCol = mobileCols.find((c) => c.right && c.total) ?? mobileCols.find((c) => c.right);
+  const secondaryCol = mobileCols.find((c) => c.key !== primaryCol?.key && c.key !== statusCol?.key && c.key !== valueCol?.key && !c.right);
+  const detailCols = mobileCols.filter((c) => ![primaryCol?.key, secondaryCol?.key, statusCol?.key, valueCol?.key].includes(c.key)).slice(0, 2);
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2.5">
-        <label className="relative flex min-w-[190px] flex-1 items-center">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-3 sm:py-2.5">
+        <label className="relative flex w-full min-w-[190px] flex-1 items-center sm:w-auto">
           <SearchIcon className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-slate-400" />
           <span className="sr-only">ค้นหา</span>
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="ค้นหา…"
-            className="h-10 w-full rounded-lg border border-slate-300 pl-8 pr-2.5 text-[13px] text-slate-900 placeholder:text-slate-500 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100" />
+            className="h-11 w-full rounded-lg border border-slate-300 pl-8 pr-2.5 text-base text-slate-900 placeholder:text-slate-500 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 sm:h-10 sm:text-[13px]" />
 
         </label>
         {filters.map((f) =>
@@ -296,7 +376,7 @@ export function DataTable({
             <select
             value={sel[f.key] ?? ''}
             onChange={(e) => setSel((s) => ({ ...s, [f.key]: e.target.value }))}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-2.5 text-[12.5px] text-slate-700 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100">
+            className="h-11 min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 text-base text-slate-700 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 sm:h-10 sm:text-[12.5px]">
 
               <option value="">{f.label}ทั้งหมด</option>
               {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -307,11 +387,40 @@ export function DataTable({
         <button type="button" onClick={() => { setQ(''); setSel({}); }} className="min-h-10 rounded-lg px-2.5 text-[12px] font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
             ล้าง
           </button> : null}
-        <span className="ml-auto whitespace-nowrap text-[12px] text-slate-500">{view.length} รายการ</span>
+        <span className="ml-auto whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-medium text-slate-600">{view.length} รายการ</span>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="md:hidden">
+        {view.length ? <ul className="divide-y divide-slate-200">
+          {view.map((r) => {
+            const rowActions = actions ? actions(r) : [];
+            return <li key={r.id} className="px-4 py-3.5">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1">
+                <div className="min-w-0">
+                  <p className="truncate text-[13px] font-semibold tabular-nums text-slate-950">{fmt(r[primaryCol.key], primaryCol.fmt)}</p>
+                  {secondaryCol ? <p className="mt-0.5 line-clamp-2 text-[13px] leading-5 text-slate-600">{fmt(r[secondaryCol.key], secondaryCol.fmt)}</p> : null}
+                </div>
+                <div className="text-right">
+                  {valueCol ? <p className="whitespace-nowrap text-[13px] font-semibold tabular-nums text-slate-950">{fmt(r[valueCol.key], valueCol.fmt)}</p> : null}
+                  {statusCol ? <div className="mt-1"><Badge value={String(r[statusCol.key] ?? '')} /></div> : null}
+                </div>
+                {detailCols.length ? <dl className="col-span-2 mt-2 grid grid-cols-2 gap-x-4 gap-y-1 border-t border-slate-100 pt-2">
+                  {detailCols.map((c) => <div key={c.key} className="min-w-0"><dt className="text-[10.5px] text-slate-500">{c.header}</dt><dd className="truncate text-[12px] text-slate-800">{fmt(r[c.key], c.fmt)}</dd></div>)}
+                </dl> : null}
+              </div>
+              {rowActions.length ? <div className="mt-3 flex justify-end gap-2">{rowActions.map((a) => <GuardedAction key={a.label} action={a} className="min-w-24" />)}</div> : null}
+            </li>;
+          })}
+        </ul> : <div className="px-4 py-10 text-center">
+          <SearchIcon className="mx-auto h-5 w-5 text-slate-400" />
+          <p className="mt-2 text-[13px] font-medium text-slate-700">{empty}</p>
+          {filtering ? <Button className="mt-4" onClick={() => { setQ(''); setSel({}); }}>ล้างตัวกรอง</Button> : null}
+        </div>}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[620px] text-[12.5px]">
+          <caption className="sr-only">รายการข้อมูล {view.length} รายการ</caption>
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-[11px] text-slate-600">
               {cols.map((c) =>
@@ -340,9 +449,7 @@ export function DataTable({
                 {actions ?
               <td className="px-3 py-2">
                     <div className="flex justify-end gap-1.5">
-                      {actions(r).map((a) =>
-                  <Button key={a.label} size="sm" variant={a.danger ? 'danger' : 'primary'} onClick={a.run}>{a.label}</Button>
-                  )}
+                      {actions(r).map((a) => <GuardedAction key={a.label} action={a} />)}
                     </div>
                   </td> :
               null}
