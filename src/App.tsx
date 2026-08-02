@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
 import {
   AlertCircleIcon, BarChart3Icon, BookOpenIcon, Building2Icon, BoxesIcon, CheckCircle2Icon, ChevronsLeftIcon,
   ChevronsRightIcon, ClipboardCheckIcon, FileTextIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
@@ -744,18 +743,16 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
         </div>
       </aside>
 
-      <AnimatePresence>
-        {open ?
+      {open ?
         <div className="fixed inset-0 z-50 flex lg:hidden">
-            <motion.button
-            type="button" aria-label="ปิดเมนู" className="absolute inset-0 bg-slate-900/50"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setOpen(false)} />
+            <button
+            type="button" aria-label="ปิดเมนู" className="erp-fade-in absolute inset-0 bg-slate-900/50"
+            onClick={() => setOpen(false)} />
 
-            <motion.aside
-            className="relative flex h-full w-[258px] flex-col bg-slate-900"
+            <aside
+            className="erp-drawer-in relative flex h-full w-[258px] flex-col bg-slate-900"
             role="dialog" aria-modal="true" aria-label="เมนูหลัก"
-            initial={{ x: -24, opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: -24, opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}>
+            >
 
               <div className="flex items-center justify-between">
                 {brand}
@@ -764,10 +761,9 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
                 </button>
               </div>
               <Nav active={active} collapsed={false} onPick={go} />
-            </motion.aside>
+            </aside>
           </div> :
         null}
-      </AnimatePresence>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex min-h-12 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:px-4">
@@ -791,7 +787,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
         </header>
 
         <main className="min-w-0 flex-1 px-4 py-3 lg:px-6 lg:py-4">
-          <motion.div key={m.id} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.18, ease: 'easeOut' }} className="space-y-3">
+          <div key={m.id} className="erp-view-in space-y-3">
             <KpiStrip items={m.kpis(data)} />
             {m.panels ? <Panels items={m.panels(data, actions)} /> : null}
 
@@ -806,7 +802,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
               </Card> :
             null}
-          </motion.div>
+          </div>
         </main>
 
         <footer className="border-t border-slate-200 px-4 py-3 text-[11px] text-slate-500 lg:px-6">
@@ -815,21 +811,17 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
       </div>
 
       <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(92vw,360px)] flex-col gap-2" role="status" aria-live="polite">
-        <AnimatePresence>
-          {toasts.map((t) =>
-          <motion.div
+        {toasts.map((t) =>
+          <div
             key={t.id}
-            initial={{ opacity: 0, y: 8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 8 }}
-            transition={{ duration: 0.16 }}
-            className={cx('pointer-events-auto flex items-start gap-2 rounded-xl border bg-white px-3 py-2.5 text-[12.5px] shadow-lg', t.tone === 'ok' ? 'border-emerald-200' : 'border-rose-200')}>
+            className={cx('erp-toast-in pointer-events-auto flex items-start gap-2 rounded-xl border bg-white px-3 py-2.5 text-[12.5px] shadow-lg', t.tone === 'ok' ? 'border-emerald-200' : 'border-rose-200')}>
 
               {t.tone === 'ok' ?
             <CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> :
             <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />}
               <span className="text-slate-900">{t.text}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+          </div>
+        )}
       </div>
     </div>);
 
