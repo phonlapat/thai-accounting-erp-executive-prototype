@@ -1,7 +1,7 @@
 /* Workbench UI primitives: badges, cards, KPI strip, config-driven table and panels */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangleIcon, ArrowUpDownIcon, SearchIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, ArrowUpDownIcon, ChevronLeftIcon, ChevronRightIcon, SearchIcon, XIcon } from 'lucide-react';
 import { STATUS, dateTH, num, thb } from './data';
 import type { Tone } from './data';
 
@@ -70,7 +70,7 @@ export function CardHead({ title, sub, action }: {title: string;sub?: string;act
   return (
     <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
       <div className="min-w-0">
-        <h3 className="truncate text-[13px] font-semibold text-slate-900">{title}</h3>
+        <h2 className="truncate text-[14px] font-semibold text-slate-900">{title}</h2>
         {sub ? <p className="line-clamp-2 text-[11px] leading-4 text-slate-500 sm:truncate">{sub}</p> : null}
       </div>
       {action}
@@ -80,9 +80,9 @@ export function CardHead({ title, sub, action }: {title: string;sub?: string;act
 
 export function KpiStrip({ items }: {items: Array<{label: string;sub?: string;value: string;tone?: Tone;hint?: string;}>;}) {
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-5">
+    <div className={cx('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200', items.length === 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3 lg:grid-cols-5')}>
       {items.map((k, index) =>
-      <div key={k.label} className={cx('min-w-0 bg-white px-3.5 py-3 sm:py-2.5', items.length % 2 === 1 && index === items.length - 1 && 'col-span-2 sm:col-span-1')}>
+      <div key={k.label} className={cx('min-w-0 bg-white px-3.5 py-3', items.length % 2 === 1 && index === items.length - 1 && 'col-span-2 sm:col-span-2 lg:col-span-1')}>
           <p className="truncate text-[11.5px] font-medium text-slate-600">
             {k.label}
           </p>
@@ -102,7 +102,7 @@ export function Bar({ value, max, tone = 'info' }: {value: number;max: number;to
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
       <div
         style={{ width: `${Math.min(100, max > 0 ? Math.abs(value) / max * 100 : 0)}%` }}
-        className={cx('h-full rounded-full transition-[width] duration-300 ease-out', BAR[tone])} />
+        className={cx('erp-progress h-full rounded-full transition-[width] duration-300 ease-out', BAR[tone])} />
 
     </div>);
 
@@ -126,9 +126,15 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const committingRef = useRef(false);
+  const [committing, setCommitting] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      committingRef.current = false;
+      setCommitting(false);
+      return;
+    }
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     cancelRef.current?.focus();
@@ -150,6 +156,13 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
   }, [open, onClose]);
 
   if (!open) return null;
+  const commit = () => {
+    if (committingRef.current) return;
+    committingRef.current = true;
+    setCommitting(true);
+    onConfirm();
+    onClose();
+  };
   return createPortal(
     <div className="erp-fade-in fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" className="erp-dialog-in w-full max-w-md rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] sm:p-6">
@@ -167,7 +180,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
         </div>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
-          <Button className="w-full sm:w-auto" variant={tone === 'danger' ? 'dangerSolid' : 'primary'} onClick={() => { onConfirm(); onClose(); }}>{confirmLabel}</Button>
+          <Button className="w-full sm:w-auto" variant={tone === 'danger' ? 'dangerSolid' : 'primary'} disabled={committing} onClick={commit}>{confirmLabel}</Button>
         </div>
       </div>
     </div>, document.body
@@ -230,7 +243,7 @@ function SignedBars({ chart, title }: {chart: PanelSignedChart;title: string;}) 
                 <span className="absolute inset-x-0 top-1/2 border-t border-slate-300" />
                 <span
                   style={{ height: `${height}%` }}
-                  className={cx('absolute left-1/2 w-5 -translate-x-1/2 transition-[height] duration-200 ease-out', positive ? 'bottom-1/2 rounded-t bg-blue-600' : 'top-1/2 rounded-b bg-amber-500')} />
+                  className={cx('erp-progress absolute left-1/2 w-5 -translate-x-1/2 transition-[height] duration-200 ease-out', positive ? 'bottom-1/2 rounded-t bg-blue-600' : 'top-1/2 rounded-b bg-amber-500')} />
               </div>
               <span className="mt-1 block text-[10.5px] text-slate-600">{point.label}</span>
             </div>
@@ -330,10 +343,25 @@ export function DataTable({
   const [q, setQ] = useState('');
   const [sel, setSel] = useState<Record<string, string>>({});
   const [sort, setSort] = useState<{key: string;dir: 1 | -1;} | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(() => window.matchMedia('(max-width: 767px)').matches ? 8 : 12);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const update = () => setPageSize(media.matches ? 8 : 12);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
 
   const view = useMemo(() => {
     let out = rows.filter((r) => {
-      const okQ = !q || Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q.toLowerCase()));
+      const query = q.trim().toLocaleLowerCase('th');
+      const okQ = !query || Object.entries(r).some(([key, value]) => {
+        const column = cols.find((item) => item.key === key);
+        const translatedStatus = STATUS[String(value ?? '')]?.th ?? '';
+        return [String(value ?? ''), fmt(value, column?.fmt), translatedStatus]
+          .some((text) => text.toLocaleLowerCase('th').includes(query));
+      });
       const okF = filters.every((f) => !sel[f.key] || String(r[f.key] ?? '') === sel[f.key]);
       return okQ && okF;
     });
@@ -346,7 +374,15 @@ export function DataTable({
       });
     }
     return out;
-  }, [rows, q, sel, filters, sort]);
+  }, [rows, q, sel, filters, sort, cols]);
+
+  const pageCount = Math.max(1, Math.ceil(view.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const pageStart = (safePage - 1) * pageSize;
+  const pageRows = view.slice(pageStart, pageStart + pageSize);
+
+  useEffect(() => setPage(1), [q, sel, sort, pageSize]);
+  useEffect(() => setPage((current) => Math.min(current, pageCount)), [pageCount]);
 
   const totals = cols.filter((c) => c.total);
   const filtering = Boolean(q || Object.values(sel).some(Boolean));
@@ -364,6 +400,9 @@ export function DataTable({
           <SearchIcon className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-slate-400" />
           <span className="sr-only">ค้นหา</span>
           <input
+            type="search"
+            inputMode="search"
+            autoComplete="off"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="ค้นหา…"
@@ -387,12 +426,12 @@ export function DataTable({
         <button type="button" onClick={() => { setQ(''); setSel({}); }} className="min-h-10 rounded-lg px-2.5 text-[12px] font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
             ล้าง
           </button> : null}
-        <span className="ml-auto whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-medium text-slate-600">{view.length} รายการ</span>
+        <span className="ml-auto whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-medium text-slate-600" aria-live="polite">{view.length} รายการ</span>
       </div>
 
       <div className="md:hidden">
         {view.length ? <ul className="divide-y divide-slate-200">
-          {view.map((r) => {
+          {pageRows.map((r) => {
             const rowActions = actions ? actions(r) : [];
             return <li key={r.id} className="px-4 py-3.5">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1">
@@ -420,7 +459,7 @@ export function DataTable({
 
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[620px] text-[12.5px]">
-          <caption className="sr-only">รายการข้อมูล {view.length} รายการ</caption>
+          <caption className="sr-only">รายการข้อมูล {view.length} รายการ หน้า {safePage} จาก {pageCount}</caption>
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-[11px] text-slate-600">
               {cols.map((c) =>
@@ -439,7 +478,7 @@ export function DataTable({
             </tr>
           </thead>
           <tbody>
-            {view.map((r) =>
+            {pageRows.map((r) =>
             <tr key={r.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/70">
                 {cols.map((c) =>
               <td key={c.key} className={cx('px-3 py-2.5', c.right && 'text-right tabular-nums', c.fmt === 'mono' && 'font-medium tabular-nums text-slate-900', c.hide && HIDE[c.hide], c.fmt === 'status' && 'text-center')}>
@@ -473,6 +512,16 @@ export function DataTable({
           null}
         </table>
       </div>
+
+      {pageCount > 1 ?
+      <nav className="flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2.5" aria-label="เปลี่ยนหน้ารายการ">
+        <span className="text-[12px] tabular-nums text-slate-500">{pageStart + 1}–{Math.min(pageStart + pageSize, view.length)} จาก {view.length}</span>
+        <div className="flex items-center gap-2">
+          <Button icon={ChevronLeftIcon} size="sm" className="min-w-11 px-0 sm:min-w-9" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} ariaLabel="หน้าก่อนหน้า" />
+          <span className="min-w-10 text-center text-[12px] font-medium tabular-nums text-slate-700">{safePage}/{pageCount}</span>
+          <Button icon={ChevronRightIcon} size="sm" className="min-w-11 px-0 sm:min-w-9" disabled={safePage === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))} ariaLabel="หน้าถัดไป" />
+        </div>
+      </nav> : null}
     </div>);
 
 }
