@@ -1,6 +1,5 @@
 /* Workbench UI primitives: badges, cards, KPI strip, config-driven table and panels */
 import React, { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
 import { ArrowUpDownIcon, SearchIcon } from 'lucide-react';
 import { STATUS, dateTH, num, thb } from './data';
 import type { Tone } from './data';
@@ -99,11 +98,9 @@ export function KpiStrip({ items }: {items: Array<{label: string;sub?: string;va
 export function Bar({ value, max, tone = 'info' }: {value: number;max: number;tone?: Tone;}) {
   return (
     <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-      <motion.div
-        initial={{ width: 0 }}
-        animate={{ width: `${Math.min(100, max > 0 ? Math.abs(value) / max * 100 : 0)}%` }}
-        transition={{ duration: 0.4, ease: 'easeOut' }}
-        className={cx('h-full rounded-full', BAR[tone])} />
+      <div
+        style={{ width: `${Math.min(100, max > 0 ? Math.abs(value) / max * 100 : 0)}%` }}
+        className={cx('h-full rounded-full transition-[width] duration-300 ease-out', BAR[tone])} />
 
     </div>);
 
@@ -159,9 +156,9 @@ function SignedBars({ chart }: {chart: PanelSignedChart;}) {
               <span className={cx('block truncate text-[9.5px] tabular-nums', positive ? 'text-blue-700' : 'text-amber-700')}>{point.note}</span>
               <div className="relative mx-auto mt-1 h-12 w-full max-w-12">
                 <span className="absolute inset-x-0 top-1/2 border-t border-slate-300" />
-                <motion.span
-                  initial={{ height: 0 }} animate={{ height }} transition={{ duration: 0.24, ease: 'easeOut' }}
-                  className={cx('absolute left-1/2 w-4 -translate-x-1/2', positive ? 'bottom-1/2 rounded-t-sm bg-blue-600' : 'top-1/2 rounded-b-sm bg-amber-500')} />
+                <span
+                  style={{ height }}
+                  className={cx('absolute left-1/2 w-4 -translate-x-1/2 transition-[height] duration-200 ease-out', positive ? 'bottom-1/2 rounded-t-sm bg-blue-600' : 'top-1/2 rounded-b-sm bg-amber-500')} />
               </div>
               <span className="block text-[10px] text-slate-600">{point.label}</span>
             </div>

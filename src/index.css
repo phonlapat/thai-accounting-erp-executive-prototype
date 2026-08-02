@@ -27,6 +27,27 @@ select {
   font: inherit;
 }
 
+@keyframes erp-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes erp-drawer-in {
+  from { opacity: 0.65; transform: translateX(-24px); }
+}
+
+@keyframes erp-view-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+@keyframes erp-toast-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+
+.erp-fade-in { animation: erp-fade-in 160ms ease-out both; }
+.erp-drawer-in { animation: erp-drawer-in 180ms ease-out both; }
+.erp-view-in { animation: erp-view-in 180ms ease-out both; }
+.erp-toast-in { animation: erp-toast-in 160ms ease-out both; }
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
