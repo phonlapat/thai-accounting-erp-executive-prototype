@@ -75,6 +75,8 @@ const CORE: Mod[] = [
     const latestProfit = profit[profit.length - 1];
     const previousProfit = profit[profit.length - 2];
     const profitChange = latestProfit && previousProfit ? latestProfit.profit - previousProfit.profit : 0;
+    const profitTotal = profit.reduce((sum, item) => sum + item.profit, 0);
+    const profitableMonths = profit.filter((item) => item.profit >= 0).length;
     const nextTax = [...CALENDAR].sort((x, y) => x.due.localeCompare(y.due))[0];
     const max = Math.max(...s.map((x) => Math.max(x.revenue, x.expense)), 1);
     const p = pl(d);
@@ -91,8 +93,10 @@ const CORE: Mod[] = [
       title: 'กำไรรายเดือน', sub: '5 เดือนล่าสุด · บาท',
       signedChart: latestProfit ? {
         latestLabel: dateTH(`${latestProfit.month}-01`).split(' ').slice(1).join(' '), summary: thb(latestProfit.profit, true),
-        change: previousProfit ? `${profitChange >= 0 ? '+' : ''}${thb(profitChange, true)} จากเดือนก่อน` : undefined,
+        change: previousProfit ? `${profitChange >= 0 ? '+' : ''}${thb(profitChange, true)}` : undefined,
         changePositive: profitChange >= 0,
+        total: thb(profitTotal, true), totalPositive: profitTotal >= 0,
+        profitableMonths: `${profitableMonths}/${profit.length}`,
         points: profit.map((x) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true) }))
       } : undefined
     },
