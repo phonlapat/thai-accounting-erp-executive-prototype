@@ -61,11 +61,15 @@ const CORE: Mod[] = [
 {
   id: 'dashboard', th: 'ภาพรวมผู้บริหาร', en: 'Dashboard', group: 'ภาพรวม', icon: LayoutDashboardIcon,
   desc: 'ฐานะการเงิน งานค้าง และความเคลื่อนไหวขององค์กรในหน้าเดียว',
-  kpis: (d) => [
-  { label: 'เงินสด', value: thb(cash(d), true), tone: 'info' },
-  { label: 'ลูกหนี้', value: thb(ar(d), true) },
-  { label: 'เจ้าหนี้', value: thb(ap(d), true), tone: 'warn' },
-  { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' }],
+  kpis: (d) => {
+    const latest = series(d).slice(-1)[0];
+    const urgent = overdueList(d).length + lowStock(d).length + (CALENDAR.length ? 1 : 0);
+    return [
+    { label: 'กำไรล่าสุด', value: latest ? `${latest.profit > 0 ? '+' : ''}${thb(latest.profit, true)}` : '—', tone: latest?.profit && latest.profit < 0 ? 'bad' : 'ok' as Tone },
+    { label: 'เงินสด', value: thb(cash(d), true), tone: 'info' as Tone },
+    { label: 'เร่งด่วน', value: String(urgent), tone: urgent ? 'bad' : 'ok' as Tone },
+    { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' as Tone }];
+  },
 
   panels: (d, a, navigate) => {
     const history = series(d);
@@ -78,44 +82,49 @@ const CORE: Mod[] = [
     const nextTax = [...CALENDAR].sort((x, y) => x.due.localeCompare(y.due))[0];
     return [
     {
-      title: 'ผลประกอบการ', full: true,
+      title: 'ผลประกอบการ 5 เดือน', sub: `${dateTH(`${profit[0]?.month}-01`).split(' ')[1]}–${dateTH(`${latestProfit?.month}-01`).split(' ')[1]} 69 · บาท`, dashboardArea: 'performance' as const,
       performance: latestProfit ? {
         period: dateTH(`${latestProfit.month}-01`).split(' ').slice(1).join(' '),
         revenue: thb(latestProfit.revenue, true), expense: thb(latestProfit.expense, true),
         profit: `${latestProfit.profit > 0 ? '+' : ''}${thb(latestProfit.profit, true)}`, profitValue: latestProfit.profit,
         change: previousProfit ? `${profitChange >= 0 ? '+' : ''}${thb(profitChange, true)}` : undefined,
+        changeLabel: previousProfit ? `${profitChange >= 0 ? 'ดีขึ้น' : 'ลดลง'}จาก ${dateTH(`${previousProfit.month}-01`).split(' ')[1]}` : undefined,
         changePositive: profitChange >= 0,
         total: thb(profitTotal, true), totalPositive: profitTotal >= 0,
         profitableMonths: `${profitableMonths} จาก ${profit.length} เดือน`,
-        history: profit.slice(0, -1).map((x) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true) }))
+        points: profit.map((x, index) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true), current: index === profit.length - 1 }))
       } : undefined
     },
     {
-      title: 'รออนุมัติ', wide: true,
-      lines: pendingList(d).slice(0, 4).map((x) => ({
+      title: 'รออนุมัติ', dashboardArea: 'approvals' as const,
+      lines: pendingList(d).slice(0, 2).map((x) => ({
         left: APPROVAL_TH[x.kind], sub: `${x.refNo} · ${dateTH(x.date)}`, right: thb(x.amount),
-        actions: [{ label: 'อนุมัติ', run: () => a.decide(x.id, true),
+        actions: [{ label: 'อนุมัติ', ariaLabel: `อนุมัติ ${x.refNo}`, run: () => a.decide(x.id, true),
           confirm: { title: `อนุมัติ ${x.refNo}?`, description: `ระบบจะอนุมัติยอด ${thb(x.amount)} และปลดล็อกขั้นตอนถัดไป`, confirmLabel: 'ยืนยันอนุมัติ' } }, { label: 'ไม่อนุมัติ', run: () => a.decide(x.id, false), danger: true,
+          ariaLabel: `ไม่อนุมัติ ${x.refNo}`,
           confirm: { title: `ไม่อนุมัติ ${x.refNo}?`, description: 'รายการจะถูกส่งกลับและขั้นตอนถัดไปจะไม่ถูกดำเนินการ', confirmLabel: 'ยืนยันไม่อนุมัติ' } }]
       })),
       empty: 'ไม่มีรายการค้างอนุมัติ',
-      action: { label: 'ดูทั้งหมด', run: () => navigate('approvals'), variant: 'ghost' }
+      action: { label: 'ดูทั้งหมด', run: () => navigate('approvals'), variant: 'ghost' as const }
     },
     {
-      title: 'ต้องจัดการ',
+      title: 'ต้องทำวันนี้', dashboardArea: 'urgent' as const,
       lines: [
       ...overdueList(d).slice(0, 2).map((x) => ({
         left: `${x.no} · ลูกหนี้เกินกำหนด`,
         sub: `${Math.floor((Date.parse(TODAY) - Date.parse(x.due)) / 864e5)} วัน · ${contactName(d, x.contactId)}`, tone: 'bad' as Tone, right: thb(dueOf(x)),
-        actions: [{ label: 'เปิด', run: () => navigate('sales'), variant: 'ghost' as const }]
+        actions: [{ label: 'ดูบิล', ariaLabel: `ดูบิล ${x.no}`, run: () => navigate('sales'), variant: 'ghost' as const }]
       })),
       ...lowStock(d).slice(0, 1).map((p2) => ({
         left: `${p2.code} · สต๊อกต่ำ`, sub: p2.nameTh, tone: 'bad' as Tone, right: `${num(stockOf(p2))} / ${num(p2.reorder)}`,
-        actions: [{ label: 'เปิด', run: () => navigate('inventory'), variant: 'ghost' as const }]
+        actions: [{ label: 'ดูสต๊อก', ariaLabel: `ดูสต๊อก ${p2.code}`, run: () => navigate('inventory'), variant: 'ghost' as const }]
       })),
-      ...(nextTax ? [{ left: `${nextTax.form} · ยื่นภาษี`, sub: 'ครบกำหนด', tone: 'warn' as Tone, right: dateTH(nextTax.due), actions: [{ label: 'เปิด', run: () => navigate('tax'), variant: 'ghost' as const }] }] : [])],
+      ...(nextTax ? [{ left: `${nextTax.form} · ยื่นภาษี`, sub: 'ครบกำหนด', tone: 'warn' as Tone, right: dateTH(nextTax.due), actions: [{ label: 'ดูภาษี', ariaLabel: `ดูภาษี ${nextTax.form}`, run: () => navigate('tax'), variant: 'ghost' as const }] }] : [])],
       empty: 'ไม่มีรายการเร่งด่วน'
-    }];
+    }].sort((left, right) => {
+      const order = { urgent: 0, performance: 1, approvals: 2 } as const;
+      return order[left.dashboardArea] - order[right.dashboardArea];
+    });
 
   }
 },
@@ -852,7 +861,9 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
           </button>
           <div className="min-w-0 flex-1">
             <h1 ref={pageTitleRef} tabIndex={-1} className="truncate text-[16px] font-semibold tracking-[-0.02em] text-slate-950 outline-none lg:text-[18px]">{m.th}</h1>
-            <p className="hidden max-w-[72ch] truncate text-[11px] text-slate-500 xl:block">{m.desc}</p>
+            <p className={cx('max-w-[72ch] truncate text-[10.5px] text-slate-500', m.id === 'dashboard' ? 'block' : 'hidden xl:block')}>
+              {m.id === 'dashboard' ? `ข้อมูล ${dateTH(TODAY)} · ปิดงวด ${dateTH(data.settings.closedThrough)}` : m.desc}
+            </p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <button
