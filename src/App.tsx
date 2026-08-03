@@ -65,12 +65,10 @@ const CORE: Mod[] = [
   { label: 'เงินสด', value: thb(cash(d), true), tone: 'info' },
   { label: 'ลูกหนี้', value: thb(ar(d), true) },
   { label: 'เจ้าหนี้', value: thb(ap(d), true), tone: 'warn' },
-  { label: 'กำไรสุทธิ', value: thb(pl(d).net, true), tone: pl(d).net >= 0 ? 'ok' : 'bad' },
   { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' }],
 
   panels: (d, a, navigate) => {
     const history = series(d);
-    const s = history.slice(-3);
     const profit = history.slice(-5);
     const latestProfit = profit[profit.length - 1];
     const previousProfit = profit[profit.length - 2];
@@ -78,26 +76,18 @@ const CORE: Mod[] = [
     const profitTotal = profit.reduce((sum, item) => sum + item.profit, 0);
     const profitableMonths = profit.filter((item) => item.profit >= 0).length;
     const nextTax = [...CALENDAR].sort((x, y) => x.due.localeCompare(y.due))[0];
-    const max = Math.max(...s.map((x) => Math.max(x.revenue, x.expense)), 1);
-    const p = pl(d);
     return [
     {
-      title: 'รายได้และค่าใช้จ่าย', wide: true,
-      bars: s.flatMap((x) => [
-      { label: `${monthTH(x.month).split(' ')[0]} · รายได้`, note: thb(x.revenue, true), value: x.revenue, max, tone: 'info' as Tone },
-      { label: `${monthTH(x.month).split(' ')[0]} · ค่าใช้จ่าย`, note: `${thb(x.expense, true)} · สุทธิ ${thb(x.profit, true)}`, value: x.expense, max, tone: 'warn' as Tone }]
-      ),
-      rows: [['รายได้', thb(p.totalRev)], ['ค่าใช้จ่าย', thb(p.cogs + p.totalExp)], ['สุทธิ', thb(p.net), true]] as Array<[string, string, boolean?]>
-    },
-    {
-      title: 'กำไรรายเดือน', sub: '5 เดือนล่าสุด · บาท',
-      signedChart: latestProfit ? {
-        latestLabel: dateTH(`${latestProfit.month}-01`).split(' ').slice(1).join(' '), summary: thb(latestProfit.profit, true),
+      title: 'ผลประกอบการ', full: true,
+      performance: latestProfit ? {
+        period: dateTH(`${latestProfit.month}-01`).split(' ').slice(1).join(' '),
+        revenue: thb(latestProfit.revenue, true), expense: thb(latestProfit.expense, true),
+        profit: `${latestProfit.profit > 0 ? '+' : ''}${thb(latestProfit.profit, true)}`, profitValue: latestProfit.profit,
         change: previousProfit ? `${profitChange >= 0 ? '+' : ''}${thb(profitChange, true)}` : undefined,
         changePositive: profitChange >= 0,
         total: thb(profitTotal, true), totalPositive: profitTotal >= 0,
-        profitableMonths: `${profitableMonths}/${profit.length}`,
-        points: profit.map((x) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true) }))
+        profitableMonths: `${profitableMonths} จาก ${profit.length} เดือน`,
+        history: profit.slice(0, -1).map((x) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true) }))
       } : undefined
     },
     {

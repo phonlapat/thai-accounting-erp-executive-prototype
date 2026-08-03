@@ -205,66 +205,85 @@ function GuardedAction({ action, className }: {action: ActionSpec;className?: st
 /* ---------------- panels ---------------- */
 export interface PanelLine {left: string;sub?: string;right?: string;status?: string;tone?: Tone;actions?: ActionSpec[];}
 export interface PanelBar {label: string;note?: string;value: number;max: number;tone?: Tone;}
-export interface PanelSignedChart {
-  latestLabel: string;summary: string;change?: string;changePositive?: boolean;
+export interface PanelPerformance {
+  period: string;revenue: string;expense: string;profit: string;profitValue: number;
+  change?: string;changePositive?: boolean;
   total: string;totalPositive: boolean;profitableMonths: string;
-  points: Array<{label: string;value: number;note: string;}>;
+  history: Array<{label: string;value: number;note: string;}>;
 }
 export interface PanelSpec {
-  title: string;sub?: string;wide?: boolean;note?: string;
+  title: string;sub?: string;wide?: boolean;full?: boolean;note?: string;
   rows?: Array<[string, string, boolean?]>;
   bars?: PanelBar[];
   lines?: PanelLine[];
-  signedChart?: PanelSignedChart;
+  performance?: PanelPerformance;
   action?: ActionSpec;
   empty?: string;
 }
 
-function MonthlyResults({ chart, title }: {chart: PanelSignedChart;title: string;}) {
-  const latestValue = chart.points[chart.points.length - 1]?.value ?? 0;
-  const aria = `${title}: ${chart.points.map((p) => `${p.label} ${p.note}`).join(', ')}. รวม ${chart.total}. กำไร ${chart.profitableMonths} เดือน`;
+function PerformanceOverview({ data, title }: {data: PanelPerformance;title: string;}) {
+  const currentStatus = data.profitValue > 0 ? 'กำไร' : data.profitValue < 0 ? 'ขาดทุน' : 'คุ้มทุน';
+  const aria = `${title}: ${data.period} ${currentStatus} ${data.profit}. ${data.history.map((item) => `${item.label} ${item.value > 0 ? 'กำไร' : item.value < 0 ? 'ขาดทุน' : 'คุ้มทุน'} ${item.note}`).join(', ')}. รวม ${data.total}. มีกำไร ${data.profitableMonths}`;
   return (
-    <section className="flex flex-1 flex-col px-4 py-3.5 min-[900px]:justify-between">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="text-[11px] text-slate-500">{chart.latestLabel}</p>
-          <p className={cx('text-[26px] font-semibold leading-none tracking-[-0.025em] tabular-nums', latestValue > 0 ? 'text-blue-700' : latestValue < 0 ? 'text-amber-700' : 'text-slate-900')}>{chart.summary}</p>
+    <section aria-label={aria} className="flex flex-1 flex-col">
+      <div className="grid min-[720px]:grid-cols-[minmax(240px,0.75fr)_minmax(0,1.4fr)]">
+        <div className="bg-blue-50/60 px-4 py-4 min-[720px]:border-r min-[720px]:border-slate-200 min-[720px]:px-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[12px] font-medium text-slate-600">{data.period}</p>
+              <div className="mt-1 flex items-baseline gap-2">
+                <p className={cx('text-[30px] font-semibold leading-none tracking-[-0.025em] tabular-nums', data.profitValue > 0 ? 'text-blue-700' : data.profitValue < 0 ? 'text-amber-700' : 'text-slate-900')}>{data.profit}</p>
+                <span className={cx('text-[12px] font-semibold', data.profitValue > 0 ? 'text-blue-700' : data.profitValue < 0 ? 'text-amber-700' : 'text-slate-600')}>{currentStatus}</span>
+              </div>
+            </div>
+            {data.change ? <div className="text-right">
+              <p className={cx('text-[14px] font-semibold tabular-nums', data.changePositive ? 'text-blue-700' : 'text-amber-700')}>{data.change}</p>
+              <p className="text-[10.5px] text-slate-500">จากเดือนก่อน</p>
+            </div> : null}
+          </div>
+          <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-blue-100 pt-3">
+            <div>
+              <dt className="text-[11px] text-slate-500">รายได้</dt>
+              <dd className="text-[14px] font-semibold tabular-nums text-slate-900">{data.revenue}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] text-slate-500">ค่าใช้จ่าย</dt>
+              <dd className="text-[14px] font-semibold tabular-nums text-slate-900">{data.expense}</dd>
+            </div>
+          </dl>
         </div>
-        {chart.change ? <div className="border-l border-slate-200 pl-3 text-right">
-          <p className={cx('text-[13px] font-semibold leading-none tabular-nums', chart.changePositive ? 'text-blue-700' : 'text-amber-700')}>{chart.change}</p>
-          <p className="mt-1 text-[10.5px] text-slate-500">จากเดือนก่อน</p>
-        </div> : null}
+
+        <div className="min-w-0 px-4 py-4 min-[720px]:px-5">
+          <p className="mb-2 text-[11px] font-medium text-slate-500">4 เดือนก่อน</p>
+          <ol className="divide-y divide-slate-100 sm:grid sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+            {data.history.map((point) => {
+              const positive = point.value > 0;
+              const negative = point.value < 0;
+              const signedNote = positive ? `+${point.note}` : point.note;
+              return (
+                <li key={point.label} className={cx('grid grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-2 py-2.5 sm:block sm:px-3 sm:py-3 sm:first:pl-0 sm:last:pr-0', negative && 'bg-amber-50/70 sm:px-3')}>
+                  <span className="text-[11px] font-medium text-slate-600">{point.label}</span>
+                  <span className={cx('text-[11px] font-medium sm:mt-1 sm:block', positive ? 'text-blue-700' : negative ? 'text-amber-700' : 'text-slate-600')}>
+                    {positive ? 'กำไร' : negative ? 'ขาดทุน' : 'คุ้มทุน'}
+                  </span>
+                  <span className={cx('text-right text-[13px] font-semibold tabular-nums sm:mt-0.5 sm:block sm:text-left', negative ? 'text-amber-700' : 'text-slate-900')}>
+                    {signedNote}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       </div>
-      <ul aria-label={aria} className="-mx-4 mt-4 divide-y divide-slate-100 min-[900px]:mt-0 sm:max-[899px]:grid sm:max-[899px]:grid-cols-5 sm:max-[899px]:divide-x sm:max-[899px]:divide-y-0">
-        {chart.points.map((point, index) => {
-          const positive = point.value > 0;
-          const negative = point.value < 0;
-          const latest = index === chart.points.length - 1;
-          const signedNote = positive ? `+${point.note}` : point.note;
-          return (
-            <li key={point.label} className={cx(
-              'grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-2 px-4 py-2.5 sm:max-[899px]:block sm:max-[899px]:px-2 sm:max-[899px]:py-3 sm:max-[899px]:text-center',
-              negative ? 'bg-amber-50/70' : latest ? 'bg-blue-50/70' : 'bg-white'
-            )}>
-              <span className={cx('text-[11px]', latest ? 'font-semibold text-slate-950' : 'text-slate-600')}>{point.label}</span>
-              <span className={cx('text-[11px] font-medium sm:max-[899px]:mt-1 sm:max-[899px]:block', positive ? 'text-blue-700' : negative ? 'text-amber-700' : 'text-slate-600')}>
-                {positive ? 'กำไร' : negative ? 'ขาดทุน' : 'คุ้มทุน'}
-              </span>
-              <span className={cx('text-right text-[12.5px] font-semibold tabular-nums sm:max-[899px]:mt-0.5 sm:max-[899px]:block sm:max-[899px]:text-center', negative ? 'text-amber-700' : latest ? 'text-blue-700' : 'text-slate-900')}>
-                {signedNote}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-3 min-[900px]:mt-0">
+
+      <dl className="grid grid-cols-2 gap-4 border-t border-slate-200 px-4 py-3 min-[720px]:px-5">
         <div>
           <dt className="text-[10.5px] text-slate-500">รวม 5 เดือน</dt>
-          <dd className={cx('text-[13px] font-semibold tabular-nums', chart.totalPositive ? 'text-blue-700' : 'text-amber-700')}>{chart.total}</dd>
+          <dd className={cx('text-[13px] font-semibold tabular-nums', data.totalPositive ? 'text-blue-700' : 'text-amber-700')}>{data.total}</dd>
         </div>
         <div className="text-right">
-          <dt className="text-[10.5px] text-slate-500">เดือนที่มีกำไร</dt>
-          <dd className="text-[13px] font-semibold tabular-nums text-slate-900">{chart.profitableMonths}</dd>
+          <dt className="text-[10.5px] text-slate-500">มีกำไร</dt>
+          <dd className="text-[13px] font-semibold tabular-nums text-slate-900">{data.profitableMonths}</dd>
         </div>
       </dl>
     </section>
@@ -276,7 +295,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
   return (
     <div className="grid gap-4 min-[900px]:grid-cols-3">
       {items.map((p) =>
-      <Card key={p.title} className={cx('flex min-h-0 flex-col', p.wide && 'min-[900px]:col-span-2')}>
+      <Card key={p.title} className={cx('flex min-h-0 flex-col', p.wide && 'min-[900px]:col-span-2', p.full && 'min-[900px]:col-span-3')}>
           <CardHead
           title={p.title}
           sub={p.sub}
@@ -313,7 +332,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
             </ul> :
         null}
           {p.lines && !p.lines.length ? <p className="px-4 py-6 text-center text-[12px] text-slate-500">{p.empty ?? 'ไม่มีรายการ'}</p> : null}
-          {p.signedChart ? <MonthlyResults chart={p.signedChart} title={p.title} /> : null}
+          {p.performance ? <PerformanceOverview data={p.performance} title={p.title} /> : null}
           {p.rows?.length ?
         <dl className="px-4 py-3">
               {p.rows.map(([label, value, strong]) => <Row key={label} label={label} value={value} strong={strong} />)}
