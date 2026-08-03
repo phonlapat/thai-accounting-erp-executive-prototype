@@ -220,52 +220,43 @@ export interface PanelSpec {
   empty?: string;
 }
 
-function SignedBars({ chart, title }: {chart: PanelSignedChart;title: string;}) {
-  const negativeMax = Math.max(...chart.points.filter((point) => point.value < 0).map((point) => Math.abs(point.value)), 0);
-  const positiveMax = Math.max(...chart.points.filter((point) => point.value >= 0).map((point) => point.value), 0);
-  const absoluteMax = Math.max(negativeMax, positiveMax, 1);
-  const padding = absoluteMax * 0.08;
-  const negativeExtent = negativeMax + padding;
-  const positiveExtent = positiveMax + padding;
-  const range = negativeExtent + positiveExtent;
-  const zero = negativeExtent / range * 100;
-  const latestPositive = chart.points[chart.points.length - 1]?.value >= 0;
+function MonthlyResults({ chart, title }: {chart: PanelSignedChart;title: string;}) {
+  const latestValue = chart.points[chart.points.length - 1]?.value ?? 0;
   const aria = `${title}: ${chart.points.map((p) => `${p.label} ${p.note}`).join(', ')}. รวม ${chart.total}. กำไร ${chart.profitableMonths} เดือน`;
   return (
     <section className="flex flex-1 flex-col px-4 py-3.5 min-[900px]:justify-between">
       <div className="flex items-end justify-between gap-4">
         <div>
           <p className="text-[11px] text-slate-500">{chart.latestLabel}</p>
-          <p className={cx('text-[26px] font-semibold leading-none tracking-[-0.025em] tabular-nums', latestPositive ? 'text-blue-700' : 'text-amber-700')}>{chart.summary}</p>
+          <p className={cx('text-[26px] font-semibold leading-none tracking-[-0.025em] tabular-nums', latestValue > 0 ? 'text-blue-700' : latestValue < 0 ? 'text-amber-700' : 'text-slate-900')}>{chart.summary}</p>
         </div>
         {chart.change ? <div className="border-l border-slate-200 pl-3 text-right">
           <p className={cx('text-[13px] font-semibold leading-none tabular-nums', chart.changePositive ? 'text-blue-700' : 'text-amber-700')}>{chart.change}</p>
           <p className="mt-1 text-[10.5px] text-slate-500">จากเดือนก่อน</p>
         </div> : null}
       </div>
-      <div role="img" aria-label={aria} className="mt-4 space-y-2.5 min-[900px]:mt-0">
+      <ul aria-label={aria} className="-mx-4 mt-4 divide-y divide-slate-100 min-[900px]:mt-0 sm:max-[899px]:grid sm:max-[899px]:grid-cols-5 sm:max-[899px]:divide-x sm:max-[899px]:divide-y-0">
         {chart.points.map((point, index) => {
-          const positive = point.value >= 0;
-          const width = point.value === 0 ? 0 : Math.max(2.5, Math.abs(point.value) / range * 100);
+          const positive = point.value > 0;
+          const negative = point.value < 0;
           const latest = index === chart.points.length - 1;
+          const signedNote = positive ? `+${point.note}` : point.note;
           return (
-            <div key={point.label} className="grid grid-cols-[2.25rem_minmax(0,1fr)_4.25rem] items-center gap-2" aria-hidden="true">
-              <span className={cx('text-[10.5px]', latest ? 'font-semibold text-slate-900' : 'text-slate-500')}>{point.label}</span>
-              <div className="relative h-5">
-                <span style={{ left: `${zero}%` }} className="absolute bottom-0 top-0 w-px bg-slate-300" />
-                <span
-                  style={positive ? { left: `${zero}%`, width: `${width}%` } : { right: `${100 - zero}%`, width: `${width}%` }}
-                  className={cx(
-                    'erp-progress absolute top-1/2 h-2.5 -translate-y-1/2 transition-[width] duration-200 ease-out',
-                    positive ? 'rounded-r' : 'rounded-l',
-                    positive ? latest ? 'bg-blue-700' : 'bg-blue-500' : 'bg-amber-600'
-                  )} />
-              </div>
-              <span className={cx('text-right text-[11px] font-medium tabular-nums', positive ? latest ? 'text-blue-700' : 'text-slate-600' : 'text-amber-700')}>{point.note}</span>
-            </div>
+            <li key={point.label} className={cx(
+              'grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-2 px-4 py-2.5 sm:max-[899px]:block sm:max-[899px]:px-2 sm:max-[899px]:py-3 sm:max-[899px]:text-center',
+              negative ? 'bg-amber-50/70' : latest ? 'bg-blue-50/70' : 'bg-white'
+            )}>
+              <span className={cx('text-[11px]', latest ? 'font-semibold text-slate-950' : 'text-slate-600')}>{point.label}</span>
+              <span className={cx('text-[11px] font-medium sm:max-[899px]:mt-1 sm:max-[899px]:block', positive ? 'text-blue-700' : negative ? 'text-amber-700' : 'text-slate-600')}>
+                {positive ? 'กำไร' : negative ? 'ขาดทุน' : 'คุ้มทุน'}
+              </span>
+              <span className={cx('text-right text-[12.5px] font-semibold tabular-nums sm:max-[899px]:mt-0.5 sm:max-[899px]:block sm:max-[899px]:text-center', negative ? 'text-amber-700' : latest ? 'text-blue-700' : 'text-slate-900')}>
+                {signedNote}
+              </span>
+            </li>
           );
         })}
-      </div>
+      </ul>
       <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-3 min-[900px]:mt-0">
         <div>
           <dt className="text-[10.5px] text-slate-500">รวม 5 เดือน</dt>
@@ -322,7 +313,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
             </ul> :
         null}
           {p.lines && !p.lines.length ? <p className="px-4 py-6 text-center text-[12px] text-slate-500">{p.empty ?? 'ไม่มีรายการ'}</p> : null}
-          {p.signedChart ? <SignedBars chart={p.signedChart} title={p.title} /> : null}
+          {p.signedChart ? <MonthlyResults chart={p.signedChart} title={p.title} /> : null}
           {p.rows?.length ?
         <dl className="px-4 py-3">
               {p.rows.map(([label, value, strong]) => <Row key={label} label={label} value={value} strong={strong} />)}
