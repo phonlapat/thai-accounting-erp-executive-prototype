@@ -221,36 +221,43 @@ export interface PanelSpec {
 }
 
 function SignedBars({ chart, title }: {chart: PanelSignedChart;title: string;}) {
-  const max = Math.max(...chart.points.map((p) => Math.abs(p.value)), 1);
+  const negativeMax = Math.max(...chart.points.filter((point) => point.value < 0).map((point) => Math.abs(point.value)), 0);
+  const positiveMax = Math.max(...chart.points.filter((point) => point.value >= 0).map((point) => point.value), 0);
+  const absoluteMax = Math.max(negativeMax, positiveMax, 1);
+  const padding = absoluteMax * 0.08;
+  const negativeExtent = negativeMax + padding;
+  const positiveExtent = positiveMax + padding;
+  const range = negativeExtent + positiveExtent;
+  const zero = negativeExtent / range * 100;
   const latestPositive = chart.points[chart.points.length - 1]?.value >= 0;
   const aria = `${title}: ${chart.points.map((p) => `${p.label} ${p.note}`).join(', ')}. รวม ${chart.total}. กำไร ${chart.profitableMonths} เดือน`;
   return (
-    <section className="flex flex-1 flex-col px-4 py-3.5">
+    <section className="flex flex-1 flex-col px-4 py-3.5 min-[900px]:justify-between">
       <div className="flex items-end justify-between gap-4">
         <div>
           <p className="text-[11px] text-slate-500">{chart.latestLabel}</p>
-          <p className={cx('text-[24px] font-semibold leading-none tabular-nums', latestPositive ? 'text-blue-700' : 'text-amber-700')}>{chart.summary}</p>
+          <p className={cx('text-[26px] font-semibold leading-none tracking-[-0.025em] tabular-nums', latestPositive ? 'text-blue-700' : 'text-amber-700')}>{chart.summary}</p>
         </div>
-        {chart.change ? <div className="text-right">
+        {chart.change ? <div className="border-l border-slate-200 pl-3 text-right">
           <p className={cx('text-[13px] font-semibold leading-none tabular-nums', chart.changePositive ? 'text-blue-700' : 'text-amber-700')}>{chart.change}</p>
           <p className="mt-1 text-[10.5px] text-slate-500">จากเดือนก่อน</p>
         </div> : null}
       </div>
-      <div role="img" aria-label={aria} className="mt-4 space-y-2.5">
+      <div role="img" aria-label={aria} className="mt-4 space-y-2.5 min-[900px]:mt-0">
         {chart.points.map((point, index) => {
           const positive = point.value >= 0;
-          const width = Math.max(3, Math.abs(point.value) / max * 50);
+          const width = point.value === 0 ? 0 : Math.max(2.5, Math.abs(point.value) / range * 100);
           const latest = index === chart.points.length - 1;
           return (
             <div key={point.label} className="grid grid-cols-[2.25rem_minmax(0,1fr)_4.25rem] items-center gap-2" aria-hidden="true">
               <span className={cx('text-[10.5px]', latest ? 'font-semibold text-slate-900' : 'text-slate-500')}>{point.label}</span>
               <div className="relative h-5">
-                <span className="absolute bottom-0 left-1/2 top-0 w-px bg-slate-300" />
+                <span style={{ left: `${zero}%` }} className="absolute bottom-0 top-0 w-px bg-slate-300" />
                 <span
-                  style={{ width: `${width}%` }}
+                  style={positive ? { left: `${zero}%`, width: `${width}%` } : { right: `${100 - zero}%`, width: `${width}%` }}
                   className={cx(
                     'erp-progress absolute top-1/2 h-2.5 -translate-y-1/2 transition-[width] duration-200 ease-out',
-                    positive ? 'left-1/2 rounded-r' : 'right-1/2 rounded-l',
+                    positive ? 'rounded-r' : 'rounded-l',
                     positive ? latest ? 'bg-blue-700' : 'bg-blue-500' : 'bg-amber-600'
                   )} />
               </div>
@@ -259,7 +266,7 @@ function SignedBars({ chart, title }: {chart: PanelSignedChart;title: string;}) 
           );
         })}
       </div>
-      <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-3">
+      <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-slate-100 pt-3 min-[900px]:mt-0">
         <div>
           <dt className="text-[10.5px] text-slate-500">รวม 5 เดือน</dt>
           <dd className={cx('text-[13px] font-semibold tabular-nums', chart.totalPositive ? 'text-blue-700' : 'text-amber-700')}>{chart.total}</dd>
@@ -276,9 +283,9 @@ function SignedBars({ chart, title }: {chart: PanelSignedChart;title: string;}) 
 export function Panels({ items }: {items: PanelSpec[];}) {
   if (!items.length) return null;
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
+    <div className="grid gap-4 min-[900px]:grid-cols-3">
       {items.map((p) =>
-      <Card key={p.title} className={cx('flex min-h-0 flex-col', p.wide && 'lg:col-span-2')}>
+      <Card key={p.title} className={cx('flex min-h-0 flex-col', p.wide && 'min-[900px]:col-span-2')}>
           <CardHead
           title={p.title}
           sub={p.sub}
