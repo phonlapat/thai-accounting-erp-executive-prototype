@@ -22,7 +22,7 @@ interface Mod {
   id: string;th: string;en: string;group: string;desc: string;
   icon: React.ComponentType<{className?: string;}>;
   kpis: (d: AppData) => Kpi[];
-  panels?: (d: AppData, a: Actions, navigate: (id: string) => void) => PanelSpec[];
+  panels?: (d: AppData, a: Actions, navigate: (id: string, query?: string) => void) => PanelSpec[];
   title?: string;sub?: string;
   cols?: Col[];
   rows?: (d: AppData) => RowData[];
@@ -34,6 +34,45 @@ const KIND_TH: Record<string, string> = { quote: 'ใบเสนอราคา
 const APPROVAL_TH: Record<AppData['approvals'][number]['kind'], string> = { bill: 'บิลซื้อ', expense: 'ค่าใช้จ่าย', payroll: 'เงินเดือน', journal: 'สมุดรายวัน' };
 const opts = (vals: string[]) => Array.from(new Set(vals)).map((v) => ({ value: v, label: STATUS[v]?.th ?? v }));
 const N = (v: string | number | undefined) => Number(v ?? 0);
+const daysBetween = (from: string, to: string) => Math.floor((Date.parse(to) - Date.parse(from)) / 864e5);
+
+interface DashboardAlert {
+  left: string;sub: string;right: string;tone: Tone;priority: number;
+  destination: 'sales' | 'inventory' | 'tax';query?: string;actionLabel: string;ariaLabel: string;
+}
+
+function dashboardAlerts(d: AppData): DashboardAlert[] {
+  const overdue: DashboardAlert[] = overdueList(d).map((invoice) => {
+    const late = Math.max(0, -daysBetween(TODAY, invoice.due));
+    return {
+      left: `${invoice.no} · ลูกหนี้เกินกำหนด`,
+      sub: `เกิน ${late} วัน · ${contactName(d, invoice.contactId)}`,
+      right: thb(dueOf(invoice)), tone: 'bad', priority: 30000 + late,
+      destination: 'sales', query: invoice.no, actionLabel: 'ดูบิล', ariaLabel: `ดูบิล ${invoice.no}`
+    };
+  });
+  const stock: DashboardAlert[] = lowStock(d).map((product) => {
+    const shortfall = Math.max(0, product.reorder - stockOf(product));
+    return {
+      left: `${product.code} · สต๊อกต่ำ`,
+      sub: `ต่ำกว่าเกณฑ์ ${num(shortfall)} ${product.unit} · ${product.nameTh}`,
+      right: `${num(stockOf(product))} / ${num(product.reorder)}`, tone: 'bad', priority: 10000 + shortfall,
+      destination: 'inventory', query: product.code, actionLabel: 'ดูสต๊อก', ariaLabel: `ดูสต๊อก ${product.code}`
+    };
+  });
+  const upcomingTax = CALENDAR.map((item) => ({ ...item, days: daysBetween(TODAY, item.due) }))
+    .filter((item) => item.days >= 0 && item.days <= 30)
+    .sort((a, b) => a.days - b.days);
+  const nearestTaxDue = upcomingTax[0]?.due;
+  const nearestTax = upcomingTax.filter((item) => item.due === nearestTaxDue);
+  const tax: DashboardAlert[] = nearestTax.length ? [{
+    left: `${nearestTax.map((item) => item.form).join(' และ ')} · ยื่นภาษี`,
+    sub: nearestTax[0].days === 0 ? 'ครบกำหนดวันนี้' : `ครบใน ${nearestTax[0].days} วัน`,
+    right: dateTH(nearestTax[0].due), tone: 'warn', priority: 20000 - nearestTax[0].days,
+    destination: 'tax', actionLabel: 'ดูภาษี', ariaLabel: `ดูภาษี ${nearestTax.map((item) => item.form).join(' และ ')}`
+  }] : [];
+  return [...overdue, ...tax, ...stock].sort((a, b) => b.priority - a.priority);
+}
 
 const SALES: Col[] = [
 { key: 'no', header: 'เลขที่', fmt: 'mono' },
@@ -63,9 +102,10 @@ const CORE: Mod[] = [
   desc: 'ฐานะการเงิน งานค้าง และความเคลื่อนไหวขององค์กรในหน้าเดียว',
   kpis: (d) => {
     const latest = series(d).slice(-1)[0];
-    const urgent = overdueList(d).length + lowStock(d).length + (CALENDAR.length ? 1 : 0);
+    const latestOpen = latest ? latest.month > d.settings.closedThrough.slice(0, 7) : false;
+    const urgent = dashboardAlerts(d).length;
     return [
-    { label: 'กำไรล่าสุด', value: latest ? `${latest.profit > 0 ? '+' : ''}${thb(latest.profit, true)}` : '—', tone: latest?.profit && latest.profit < 0 ? 'bad' : 'ok' as Tone },
+    { label: 'กำไรล่าสุด', sub: latest ? `${dateTH(`${latest.month}-01`).split(' ').slice(1).join(' ')} · ${latestOpen ? 'ยังไม่ปิดงวด' : 'ปิดงวดแล้ว'}` : undefined, value: latest ? `${latest.profit > 0 ? '+' : ''}${thb(latest.profit, true)}` : '—', tone: (latest && latest.profit < 0 ? 'bad' : 'ok') as Tone },
     { label: 'เงินสด', value: thb(cash(d), true), tone: 'info' as Tone },
     { label: 'เร่งด่วน', value: String(urgent), tone: urgent ? 'bad' : 'ok' as Tone },
     { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' as Tone }];
@@ -79,47 +119,53 @@ const CORE: Mod[] = [
     const profitChange = latestProfit && previousProfit ? latestProfit.profit - previousProfit.profit : 0;
     const profitTotal = profit.reduce((sum, item) => sum + item.profit, 0);
     const profitableMonths = profit.filter((item) => item.profit >= 0).length;
-    const nextTax = [...CALENDAR].sort((x, y) => x.due.localeCompare(y.due))[0];
+    const worstProfit = profit.reduce((worst, item) => item.profit < worst.profit ? item : worst, profit[0]);
+    const latestMonth = latestProfit ? dateTH(`${latestProfit.month}-01`).split(' ')[1] : '';
+    const worstMonth = worstProfit ? dateTH(`${worstProfit.month}-01`).split(' ')[1] : '';
+    const interpretation = latestProfit && latestProfit.profit > 0 && profitTotal < 0
+      ? `${latestMonth} กลับมามีกำไร แต่รวม 5 เดือนยังขาดทุนจากผลเดือน ${worstMonth}`
+      : latestProfit && latestProfit.profit > 0
+        ? `${latestMonth} มีกำไร และผลรวม 5 เดือนเป็นบวก`
+        : latestProfit ? `${latestMonth} ขาดทุน และกดดันผลรวม 5 เดือน` : '';
+    const urgentLines = dashboardAlerts(d);
+    const approvals = [...pendingList(d)].sort((left, right) => left.date.localeCompare(right.date));
     return [
     {
       title: 'ผลประกอบการ 5 เดือน', sub: `${dateTH(`${profit[0]?.month}-01`).split(' ')[1]}–${dateTH(`${latestProfit?.month}-01`).split(' ')[1]} 69 · บาท`, dashboardArea: 'performance' as const,
       performance: latestProfit ? {
         period: dateTH(`${latestProfit.month}-01`).split(' ').slice(1).join(' '),
+        periodState: latestProfit.month > d.settings.closedThrough.slice(0, 7) ? 'ยังไม่ปิดงวด' : 'ปิดงวดแล้ว',
         revenue: thb(latestProfit.revenue, true), expense: thb(latestProfit.expense, true),
         profit: `${latestProfit.profit > 0 ? '+' : ''}${thb(latestProfit.profit, true)}`, profitValue: latestProfit.profit,
         change: previousProfit ? `${profitChange >= 0 ? '+' : ''}${thb(profitChange, true)}` : undefined,
         changeLabel: previousProfit ? `${profitChange >= 0 ? 'ดีขึ้น' : 'ลดลง'}จาก ${dateTH(`${previousProfit.month}-01`).split(' ')[1]}` : undefined,
         changePositive: profitChange >= 0,
+        interpretation,
         total: thb(profitTotal, true), totalPositive: profitTotal >= 0,
         profitableMonths: `${profitableMonths} จาก ${profit.length} เดือน`,
-        points: profit.map((x, index) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit, true), current: index === profit.length - 1 }))
+        points: profit.map((x, index) => ({ label: dateTH(`${x.month}-01`).split(' ')[1], value: x.profit, note: thb(x.profit).replace('.00', ''), current: index === profit.length - 1, open: x.month > d.settings.closedThrough.slice(0, 7) }))
       } : undefined
     },
     {
       title: 'รออนุมัติ', dashboardArea: 'approvals' as const,
-      lines: pendingList(d).slice(0, 2).map((x) => ({
-        left: APPROVAL_TH[x.kind], sub: `${x.refNo} · ${dateTH(x.date)}`, right: thb(x.amount),
+      lines: approvals.slice(0, 2).map((x) => {
+        const waiting = Math.max(0, daysBetween(x.date, TODAY));
+        return {
+        left: x.title, sub: `${x.refNo} · รอ ${waiting} วัน · ${x.requester}`, right: thb(x.amount),
         actions: [{ label: 'อนุมัติ', ariaLabel: `อนุมัติ ${x.refNo}`, run: () => a.decide(x.id, true),
-          confirm: { title: `อนุมัติ ${x.refNo}?`, description: `ระบบจะอนุมัติยอด ${thb(x.amount)} และปลดล็อกขั้นตอนถัดไป`, confirmLabel: 'ยืนยันอนุมัติ' } }, { label: 'ไม่อนุมัติ', run: () => a.decide(x.id, false), danger: true,
+          confirm: { title: `อนุมัติ ${x.refNo}?`, description: `${x.title} · ผู้ขอ ${x.requester} · รอ ${waiting} วัน · ยอด ${thb(x.amount)} ระบบจะปลดล็อกขั้นตอนถัดไป`, confirmLabel: 'ยืนยันอนุมัติ' } }, { label: 'ไม่อนุมัติ', run: () => a.decide(x.id, false), danger: true,
           ariaLabel: `ไม่อนุมัติ ${x.refNo}`,
-          confirm: { title: `ไม่อนุมัติ ${x.refNo}?`, description: 'รายการจะถูกส่งกลับและขั้นตอนถัดไปจะไม่ถูกดำเนินการ', confirmLabel: 'ยืนยันไม่อนุมัติ' } }]
-      })),
+          confirm: { title: `ไม่อนุมัติ ${x.refNo}?`, description: `${x.title} · ผู้ขอ ${x.requester} · ยอด ${thb(x.amount)} รายการจะถูกส่งกลับ`, confirmLabel: 'ยืนยันไม่อนุมัติ' } }]
+      };}),
       empty: 'ไม่มีรายการค้างอนุมัติ',
       action: { label: 'ดูทั้งหมด', run: () => navigate('approvals'), variant: 'ghost' as const }
     },
     {
-      title: 'ต้องทำวันนี้', dashboardArea: 'urgent' as const,
-      lines: [
-      ...overdueList(d).slice(0, 2).map((x) => ({
-        left: `${x.no} · ลูกหนี้เกินกำหนด`,
-        sub: `${Math.floor((Date.parse(TODAY) - Date.parse(x.due)) / 864e5)} วัน · ${contactName(d, x.contactId)}`, tone: 'bad' as Tone, right: thb(dueOf(x)),
-        actions: [{ label: 'ดูบิล', ariaLabel: `ดูบิล ${x.no}`, run: () => navigate('sales'), variant: 'ghost' as const }]
+      title: 'เรื่องเร่งด่วน', dashboardArea: 'urgent' as const, collapseAfter: 2,
+      lines: urgentLines.map((item) => ({
+        left: item.left, sub: item.sub, tone: item.tone, right: item.right,
+        actions: [{ label: item.actionLabel, ariaLabel: item.ariaLabel, run: () => navigate(item.destination, item.query), variant: 'ghost' as const }]
       })),
-      ...lowStock(d).slice(0, 1).map((p2) => ({
-        left: `${p2.code} · สต๊อกต่ำ`, sub: p2.nameTh, tone: 'bad' as Tone, right: `${num(stockOf(p2))} / ${num(p2.reorder)}`,
-        actions: [{ label: 'ดูสต๊อก', ariaLabel: `ดูสต๊อก ${p2.code}`, run: () => navigate('inventory'), variant: 'ghost' as const }]
-      })),
-      ...(nextTax ? [{ left: `${nextTax.form} · ยื่นภาษี`, sub: 'ครบกำหนด', tone: 'warn' as Tone, right: dateTH(nextTax.due), actions: [{ label: 'ดูภาษี', ariaLabel: `ดูภาษี ${nextTax.form}`, run: () => navigate('tax'), variant: 'ghost' as const }] }] : [])],
       empty: 'ไม่มีรายการเร่งด่วน'
     }].sort((left, right) => {
       const order = { urgent: 0, performance: 1, approvals: 2 } as const;
@@ -718,8 +764,13 @@ interface DemoSession { email: string; }
 const COLLAPSED_KEY = 'thai-erp-sidebar-collapsed';
 
 function moduleFromLocation() {
-  const id = window.location.hash.replace(/^#\/?/, '');
+  const id = window.location.hash.replace(/^#\/?/, '').split('?')[0];
   return MODULES.some((item) => item.id === id) ? id : 'dashboard';
+}
+
+function queryFromLocation() {
+  const query = window.location.hash.split('?')[1];
+  return query ? new URLSearchParams(query).get('q') ?? '' : '';
 }
 
 function readCollapsed() {
@@ -733,27 +784,36 @@ function readCollapsed() {
 function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () => void;}) {
   const { data, actions, toasts, storageIssue } = useStore();
   const [active, setActive] = useState(moduleFromLocation);
+  const [tableQuery, setTableQuery] = useState(queryFromLocation);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [open, setOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreMenuFocusRef = useRef(false);
   const closeMenuRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const pageTitleRef = useRef<HTMLHeadingElement>(null);
   const m = useMemo(() => MODULES.find((x) => x.id === active) ?? MODULES[0], [active]);
   const pending = pendingList(data).length;
 
-  const go = (id: string) => {
+  const go = (id: string, query = '') => {
     if (!MODULES.some((item) => item.id === id)) return;
-    if (window.location.hash !== `#${id}`) window.history.pushState(null, '', `#${id}`);
+    const nextHash = `#${id}${query ? `?q=${encodeURIComponent(query)}` : ''}`;
+    if (window.location.hash !== nextHash) window.history.pushState(null, '', nextHash);
     setActive(id);
+    setTableQuery(query);
+    restoreMenuFocusRef.current = false;
     setOpen(false);
     window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     window.requestAnimationFrame(() => pageTitleRef.current?.focus());
   };
 
   useEffect(() => {
-    const onHistory = () => setActive(moduleFromLocation());
+    const onHistory = () => {
+      setActive(moduleFromLocation());
+      setTableQuery(queryFromLocation());
+    };
     window.addEventListener('popstate', onHistory);
     window.addEventListener('hashchange', onHistory);
     return () => {
@@ -773,12 +833,14 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
+    const content = contentRef.current;
+    const menuButton = menuButtonRef.current;
     document.body.style.overflow = 'hidden';
+    if (content) content.inert = true;
     closeMenuRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setOpen(false);
-        window.requestAnimationFrame(() => menuButtonRef.current?.focus());
       }
       if (event.key !== 'Tab' || !drawerRef.current) return;
       const focusable = Array.from(drawerRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'));
@@ -791,7 +853,12 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
     window.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = previousOverflow;
+      if (content) content.inert = false;
       window.removeEventListener('keydown', onKey);
+      if (restoreMenuFocusRef.current) {
+        window.requestAnimationFrame(() => menuButton?.focus());
+        restoreMenuFocusRef.current = false;
+      }
     };
   }, [open]);
 
@@ -814,7 +881,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
   return (
     <div className="flex min-h-screen w-full bg-slate-50 text-slate-900">
-      <button type="button" onClick={() => document.getElementById('main-content')?.focus()} className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg focus:translate-y-0">ข้ามไปเนื้อหา</button>
+      <button type="button" tabIndex={open ? -1 : undefined} aria-hidden={open || undefined} onClick={() => document.getElementById('main-content')?.focus()} className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg focus:translate-y-0">ข้ามไปเนื้อหา</button>
       <aside className={cx('sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-800 bg-slate-950 lg:flex', collapsed ? 'w-[72px]' : 'w-[260px]')}>
         {brand(collapsed)}
         <Nav active={active} collapsed={collapsed} onPick={go} />
@@ -833,9 +900,9 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
       {open ?
         <div className="fixed inset-0 z-50 flex lg:hidden">
-            <button
-            type="button" aria-label="ปิดเมนู" className="erp-fade-in absolute inset-0 bg-slate-900/50"
-            onClick={() => { setOpen(false); window.requestAnimationFrame(() => menuButtonRef.current?.focus()); }} />
+            <div
+            aria-hidden="true" className="erp-fade-in absolute inset-0 bg-slate-900/50"
+            onMouseDown={() => setOpen(false)} />
 
             <aside
             ref={drawerRef}
@@ -845,7 +912,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
               <div className="flex items-center justify-between">
                 {brand(false)}
-                <button ref={closeMenuRef} type="button" onClick={() => { setOpen(false); window.requestAnimationFrame(() => menuButtonRef.current?.focus()); }} aria-label="ปิดเมนู" className="mr-2 flex h-11 w-11 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
+                <button ref={closeMenuRef} type="button" onClick={() => setOpen(false)} aria-label="ปิดเมนู" className="mr-2 flex h-11 w-11 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
                   <XIcon className="h-4 w-4" />
                 </button>
               </div>
@@ -854,9 +921,9 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
           </div> :
         null}
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div ref={contentRef} aria-hidden={open || undefined} className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex min-h-14 items-center gap-2 border-b border-slate-200 bg-white px-3 sm:px-4 lg:min-h-16 lg:px-6">
-          <button ref={menuButtonRef} type="button" onClick={() => setOpen(true)} aria-label="เปิดเมนู" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden">
+          <button ref={menuButtonRef} type="button" onClick={() => { restoreMenuFocusRef.current = true; setOpen(true); }} aria-label="เปิดเมนู" className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 lg:hidden">
             <MenuIcon className="h-4 w-4" />
           </button>
           <div className="min-w-0 flex-1">
@@ -893,8 +960,10 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
             <Card>
                 <CardHead title={m.title ?? m.th} />
                 <DataTable
+                key={`${m.id}:${tableQuery}`}
                 cols={m.cols}
                 rows={m.rows(data)}
+                initialQuery={tableQuery}
                 filters={m.filters ? m.filters(data) : []}
                 actions={m.actions ? (r) => m.actions ? m.actions(r, actions) : [] : undefined} />
 
@@ -941,8 +1010,10 @@ const SESSION_KEY = 'thai-erp-demo-session';
 function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState<{email?: string;password?: string;}>({});
   const [showPassword, setShowPassword] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.title = 'เข้าสู่ระบบสาธิต | Siam ERP';
@@ -950,12 +1021,14 @@ function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!email.includes('@')) {
-      setError('กรุณาตรวจสอบอีเมลแล้วลองอีกครั้ง');
-      return;
-    }
-    if (password.length < 4) {
-      setError('รหัสผ่านต้องมีอย่างน้อย 4 ตัวอักษร');
+    const nextErrors: {email?: string;password?: string;} = {};
+    if (!email.trim()) nextErrors.email = 'กรุณากรอกอีเมล';
+    else if (!email.includes('@')) nextErrors.email = 'รูปแบบอีเมลไม่ถูกต้อง';
+    if (!password) nextErrors.password = 'กรุณากรอกรหัสผ่าน';
+    else if (password.length < 4) nextErrors.password = 'ต้องมีอย่างน้อย 4 ตัวอักษร';
+    if (nextErrors.email || nextErrors.password) {
+      setErrors(nextErrors);
+      window.requestAnimationFrame(() => (nextErrors.email ? emailRef.current : passwordRef.current)?.focus());
       return;
     }
     onEnter(email.trim());
@@ -985,28 +1058,30 @@ function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
           <p className="mt-1 text-[13px] text-slate-600">กรอกบัญชีทดลอง หรือเข้าใช้ทันที</p>
 
           <form className="mt-7 space-y-5" onSubmit={submit} noValidate>
-          <label className="block">
-            <span className="mb-1.5 block text-[13px] font-medium text-slate-700">อีเมล</span>
+          <div>
+            <label htmlFor="sign-in-email" className="mb-1.5 block text-[13px] font-medium text-slate-700">อีเมล</label>
             <input
-              type="email" inputMode="email" autoComplete="email" value={email} required aria-invalid={Boolean(error && !email.includes('@'))} aria-describedby={error ? 'sign-in-error' : undefined}
-              onChange={(event) => { setEmail(event.target.value); if (error) setError(''); }} placeholder="name@company.com"
+              ref={emailRef} id="sign-in-email" type="email" inputMode="email" autoComplete="email" value={email} required aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'sign-in-email-error' : undefined}
+              onChange={(event) => { setEmail(event.target.value); if (errors.email) setErrors((current) => ({ ...current, email: undefined })); }} placeholder="name@company.com"
               className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-base text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-blue-700 focus:ring-2 focus:ring-blue-100 sm:text-[14px]"
             />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-[13px] font-medium text-slate-700">รหัสผ่าน</span>
+            {errors.email ? <p id="sign-in-email-error" className="mt-1.5 flex items-center gap-1.5 text-[12px] text-rose-700"><AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />{errors.email}</p> : null}
+          </div>
+          <div>
+            <label htmlFor="sign-in-password" className="mb-1.5 block text-[13px] font-medium text-slate-700">รหัสผ่าน</label>
             <span className="relative block">
               <input
-                type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} required aria-invalid={Boolean(error && password.length < 4)} aria-describedby={error ? 'sign-in-error' : undefined}
-                onChange={(event) => { setPassword(event.target.value); if (error) setError(''); }}
+                ref={passwordRef} id="sign-in-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} required aria-invalid={Boolean(errors.password)} aria-describedby={errors.password ? 'sign-in-password-error' : undefined}
+                onChange={(event) => { setPassword(event.target.value); if (errors.password) setErrors((current) => ({ ...current, password: undefined })); }}
                 className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 pr-12 text-base text-slate-950 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 sm:text-[14px]"
               />
               <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'} className="absolute inset-y-0 right-1 flex w-11 items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
                 {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
               </button>
             </span>
-          </label>
-          {error ? <p id="sign-in-error" className="flex items-center gap-2 text-[12.5px] text-rose-700" role="alert"><AlertCircleIcon className="h-4 w-4 shrink-0" />{error}</p> : null}
+            {errors.password ? <p id="sign-in-password-error" className="mt-1.5 flex items-center gap-1.5 text-[12px] text-rose-700"><AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />{errors.password}</p> : null}
+          </div>
+          {(errors.email || errors.password) ? <p className="sr-only" role="alert">กรุณาตรวจสอบข้อมูลเข้าสู่ระบบ</p> : null}
           <button type="submit" className="flex h-12 w-full items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
             เข้าสู่ระบบ
           </button>
