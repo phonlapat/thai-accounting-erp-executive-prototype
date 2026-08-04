@@ -29,7 +29,7 @@ export function Badge({ value }: {value: string;}) {
 }
 
 export function Button({
-  children, onClick, variant = 'ghost', size = 'md', icon: Icon, disabled, className, ariaLabel, title
+  children, onClick, variant = 'ghost', size = 'md', icon: Icon, disabled, className, ariaLabel, title, buttonRef
 
 
 
@@ -38,9 +38,10 @@ export function Button({
 
 
 
-}: {children?: React.ReactNode;onClick?: () => void;variant?: 'primary' | 'ghost' | 'danger' | 'dangerSolid';size?: 'sm' | 'md';icon?: React.ComponentType<{className?: string;}>;disabled?: boolean;className?: string;ariaLabel?: string;title?: string;}) {
+}: {children?: React.ReactNode;onClick?: () => void;variant?: 'primary' | 'ghost' | 'danger' | 'dangerSolid';size?: 'sm' | 'md';icon?: React.ComponentType<{className?: string;}>;disabled?: boolean;className?: string;ariaLabel?: string;title?: string;buttonRef?: React.Ref<HTMLButtonElement>;}) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       onClick={onClick}
       disabled={disabled}
@@ -126,8 +127,10 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
 }) {
   const cancelRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
   const committingRef = useRef(false);
   const [committing, setCommitting] = useState(false);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) {
@@ -135,11 +138,19 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
       setCommitting(false);
       return;
     }
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousOverflow = document.body.style.overflow;
+    const appRoot = document.getElementById('root');
+    const previousRootHidden = appRoot?.getAttribute('aria-hidden') ?? null;
+    const previousRootInert = appRoot?.inert ?? false;
     document.body.style.overflow = 'hidden';
     cancelRef.current?.focus();
+    if (appRoot) {
+      appRoot.inert = true;
+      appRoot.setAttribute('aria-hidden', 'true');
+    }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') onCloseRef.current();
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
       if (!focusable.length) return;
@@ -151,9 +162,15 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
     window.addEventListener('keydown', onKey);
     return () => {
       document.body.style.overflow = previousOverflow;
+      if (appRoot) {
+        appRoot.inert = previousRootInert;
+        if (previousRootHidden === null) appRoot.removeAttribute('aria-hidden');
+        else appRoot.setAttribute('aria-hidden', previousRootHidden);
+      }
       window.removeEventListener('keydown', onKey);
+      window.requestAnimationFrame(() => previouslyFocused?.focus());
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   const commit = () => {
@@ -179,7 +196,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
           </button>
         </div>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
+          <Button buttonRef={cancelRef} className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
           <Button className="w-full sm:w-auto" variant={tone === 'danger' ? 'dangerSolid' : 'primary'} disabled={committing} onClick={commit}>{confirmLabel}</Button>
         </div>
       </div>
@@ -189,6 +206,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
 
 function GuardedAction({ action, className }: {action: ActionSpec;className?: string;}) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmation = action.confirm ?? (action.danger ? {
     title: `${action.label}รายการนี้?`,
     description: 'โปรดตรวจสอบรายการก่อนยืนยัน การดำเนินการนี้จะเปลี่ยนสถานะของเอกสาร',
@@ -196,7 +214,7 @@ function GuardedAction({ action, className }: {action: ActionSpec;className?: st
   } : undefined);
   return (
     <>
-      <Button className={className} size="sm" variant={action.danger ? 'danger' : action.variant ?? 'primary'} disabled={action.disabled} ariaLabel={action.ariaLabel} onClick={() => confirmation ? setOpen(true) : action.run()}>{action.label}</Button>
+      <Button buttonRef={triggerRef} className={className} size="sm" variant={action.danger ? 'danger' : action.variant ?? 'primary'} disabled={action.disabled} ariaLabel={action.ariaLabel} onClick={() => confirmation ? setOpen(true) : action.run()}>{action.label}</Button>
       {confirmation ? <ConfirmDialog open={open} title={confirmation.title} description={confirmation.description} confirmLabel={confirmation.confirmLabel} tone={action.danger ? 'danger' : 'primary'} onConfirm={action.run} onClose={() => setOpen(false)} /> : null}
     </>
   );
@@ -206,10 +224,11 @@ function GuardedAction({ action, className }: {action: ActionSpec;className?: st
 export interface PanelLine {left: string;sub?: string;right?: string;status?: string;tone?: Tone;actions?: ActionSpec[];}
 export interface PanelBar {label: string;note?: string;value: number;max: number;tone?: Tone;}
 export interface PanelPerformance {
-  period: string;revenue: string;expense: string;profit: string;profitValue: number;
+  period: string;periodState: string;revenue: string;expense: string;profit: string;profitValue: number;
   change?: string;changeLabel?: string;changePositive?: boolean;
+  interpretation: string;
   total: string;totalPositive: boolean;profitableMonths: string;
-  points: Array<{label: string;value: number;note: string;current?: boolean;}>
+  points: Array<{label: string;value: number;note: string;current?: boolean;open?: boolean;}>
 }
 export interface PanelSpec {
   title: string;sub?: string;wide?: boolean;full?: boolean;dashboardArea?: 'performance' | 'urgent' | 'approvals';note?: string;
@@ -218,6 +237,7 @@ export interface PanelSpec {
   lines?: PanelLine[];
   performance?: PanelPerformance;
   action?: ActionSpec;
+  collapseAfter?: number;
   empty?: string;
 }
 
@@ -229,12 +249,17 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
   const domainMax = maxValue > 0 ? maxValue * 1.08 : 1;
   const range = domainMax - domainMin || 1;
   const zero = -domainMin / range * 100;
-  const aria = `${title}: ${data.period} ${currentStatus} ${data.profit}. ${data.points.map((item) => `${item.label} ${item.value > 0 ? 'กำไร' : item.value < 0 ? 'ขาดทุน' : 'คุ้มทุน'} ${item.note}`).join(', ')}. รวม ${data.total}. มีกำไร ${data.profitableMonths}`;
+  const zeroOffset = 3.3 * (1 - zero / 100) - 6.25 * zero / 100;
+  const zeroPosition = `calc(${zero}% + ${zeroOffset.toFixed(3)}rem)`;
+  const aria = `${title}: ${data.period} ${data.periodState} ${currentStatus} ${data.profit}. ${data.interpretation}. ${data.points.map((item) => `${item.label} ${item.open ? 'ยังไม่ปิดงวด ' : ''}${item.value > 0 ? 'กำไร' : item.value < 0 ? 'ขาดทุน' : 'คุ้มทุน'} ${item.note}`).join(', ')}. รวม ${data.total}. มีกำไร ${data.profitableMonths}`;
   return (
     <section aria-label={aria} className="flex flex-1 flex-col">
       <div className="grid flex-1 min-[720px]:grid-cols-[minmax(240px,0.72fr)_minmax(0,1.28fr)]">
         <div className="bg-blue-50/60 px-4 py-4 min-[720px]:border-r min-[720px]:border-slate-200 min-[720px]:px-5 min-[900px]:py-5">
-          <p className="text-[12px] font-medium text-slate-600">{data.period}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[12px] font-medium text-slate-600">{data.period}</p>
+            <span className="rounded-md border border-slate-200 bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">{data.periodState}</span>
+          </div>
           <div className="mt-1 flex items-baseline gap-2">
             <p className={cx('text-[30px] font-semibold leading-none tracking-[-0.025em] tabular-nums', data.profitValue > 0 ? 'text-blue-700' : data.profitValue < 0 ? 'text-amber-700' : 'text-slate-900')}>{data.profit}</p>
           </div>
@@ -244,6 +269,7 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
           {data.change ? <p className="mt-3 border-t border-blue-100 pt-3 text-[11.5px] text-slate-600">
             {data.changeLabel ?? 'เทียบเดือนก่อน'} <strong className={cx('ml-1 font-semibold tabular-nums', data.changePositive ? 'text-blue-700' : 'text-amber-700')}>{data.change}</strong>
           </p> : null}
+          <p className="mt-3 max-w-[34ch] text-[12px] leading-5 text-slate-700">{data.interpretation}</p>
           <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-blue-100 pt-3">
             <div>
               <dt className="text-[11px] text-slate-500">รายได้</dt>
@@ -257,11 +283,14 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
         </div>
 
         <div className="min-w-0 px-4 py-3.5 min-[720px]:px-5 min-[900px]:py-4">
-          <div className="mb-1.5 flex items-center justify-between text-[10.5px] text-slate-500" aria-hidden="true">
-            <span>ขาดทุน</span><span>กำไร</span>
+          <div className="relative mb-1.5 grid grid-cols-[2.8rem_minmax(0,1fr)_5.75rem] gap-x-2 text-[10.5px] text-slate-500" aria-hidden="true">
+            <div className="col-start-2 flex items-center justify-between"><span>ขาดทุน</span><span>กำไร</span></div>
+            <span className="absolute -translate-x-1/2 bg-white px-0.5 text-[9.5px] font-medium text-slate-500" style={{ left: zeroPosition }}>0</span>
           </div>
-          <ol className="space-y-1">
-            {data.points.map((point) => {
+          <div className="relative">
+            <span className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-slate-400" style={{ left: zeroPosition }} aria-hidden="true" />
+            <ol className="space-y-1">
+              {data.points.map((point) => {
               const positive = point.value > 0;
               const negative = point.value < 0;
               const signedNote = positive ? `+${point.note}` : point.note;
@@ -270,10 +299,11 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
               const width = Math.max(1.5, Math.abs(valuePosition - zero));
               const status = positive ? 'กำไร' : negative ? 'ขาดทุน' : 'คุ้มทุน';
               return (
-                <li key={point.label} aria-label={`${point.label} ${status} ${signedNote}${point.current ? ' เดือนปัจจุบัน' : ''}`} className={cx('grid min-h-11 grid-cols-[2.8rem_minmax(0,1fr)_4.4rem] items-center gap-2', negative && 'bg-amber-50/60')}>
-                  <span className={cx('pl-1 text-[11px] font-medium', point.current ? 'text-slate-950' : 'text-slate-600')}>{point.label}</span>
+                <li key={point.label} aria-label={`${point.label} ${point.open ? 'ยังไม่ปิดงวด ' : ''}${status} ${signedNote}${point.current ? ' เดือนปัจจุบัน' : ''}`} className={cx('grid min-h-11 grid-cols-[2.8rem_minmax(0,1fr)_5.75rem] items-center gap-2', negative && 'bg-amber-50/60')}>
+                  <span className={cx('pl-1 text-[11px] font-medium leading-4', point.current ? 'text-slate-950' : 'text-slate-600')}>
+                    {point.label}{point.open ? <small className="block text-[9px] font-normal text-slate-500">ยังไม่ปิด</small> : null}
+                  </span>
                   <span className="relative block h-7" aria-hidden="true">
-                    <span className="absolute inset-y-0 w-px bg-slate-400" style={{ left: `${zero}%` }} />
                     <span
                       className={cx('absolute top-2 h-3 rounded-sm', negative ? 'bg-amber-500' : point.current ? 'bg-blue-700' : 'bg-blue-300')}
                       style={{ left: `${left}%`, width: `${width}%` }} />
@@ -283,8 +313,9 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
                   </span>
                 </li>
               );
-            })}
-          </ol>
+              })}
+            </ol>
+          </div>
         </div>
       </div>
 
@@ -299,6 +330,22 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
         </div>
       </dl>
     </section>
+  );
+}
+
+function PanelLineItem({ line, className }: {line: PanelLine;className?: string;}) {
+  return (
+    <li className={cx('grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex sm:flex-wrap sm:gap-2 sm:py-2', className)}>
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 text-[13px] leading-5 text-slate-900 sm:truncate sm:text-[12.5px] sm:leading-normal">{line.left}</p>
+        {line.sub ? <p className={cx('line-clamp-2 text-[11.5px] leading-4 sm:truncate sm:text-[11px]', line.tone === 'bad' ? 'text-rose-600' : 'text-slate-500')}>{line.sub}</p> : null}
+      </div>
+      {line.right ? <span className="whitespace-nowrap text-[12.5px] font-medium tabular-nums text-slate-900">{line.right}</span> : null}
+      {line.status ? <Badge value={line.status} /> : null}
+      {line.actions?.length ? <div className="col-span-2 flex justify-end gap-2 sm:contents">
+        {line.actions.map((action) => <GuardedAction key={action.label} action={action} className="w-fit flex-none" />)}
+      </div> : null}
+    </li>
   );
 }
 
@@ -334,23 +381,20 @@ export function Panels({ items }: {items: PanelSpec[];}) {
           )}
             </ul> :
         null}
-          {p.lines?.length ?
-        <ul className="divide-y divide-slate-200">
-              {p.lines.map((l) =>
-          <li key={l.left + (l.sub ?? '')} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex sm:flex-wrap sm:gap-2 sm:py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="line-clamp-2 text-[13px] leading-5 text-slate-900 sm:truncate sm:text-[12.5px] sm:leading-normal">{l.left}</p>
-                    {l.sub ? <p className={cx('line-clamp-2 text-[11.5px] leading-4 sm:truncate sm:text-[11px]', l.tone === 'bad' ? 'text-rose-600' : 'text-slate-500')}>{l.sub}</p> : null}
-                  </div>
-                  {l.right ? <span className="whitespace-nowrap text-[12.5px] font-medium tabular-nums text-slate-900">{l.right}</span> : null}
-                  {l.status ? <Badge value={l.status} /> : null}
-                  {l.actions?.length ? <div className="col-span-2 flex justify-end gap-2 sm:contents">
-                    {l.actions.map((a) => <GuardedAction key={a.label} action={a} />)}
-                  </div> : null}
-                </li>
-          )}
-            </ul> :
-        null}
+          {p.lines?.length ? <>
+            <ul className="divide-y divide-slate-200">
+              {p.lines.map((line, index) => <PanelLineItem key={line.left + (line.sub ?? '')} line={line} className={p.collapseAfter && index >= p.collapseAfter ? '!hidden min-[900px]:!grid' : undefined} />)}
+            </ul>
+            {p.collapseAfter && p.lines.length > p.collapseAfter ?
+              <details className="group border-t border-slate-200 min-[900px]:hidden">
+                <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center px-4 text-[12px] font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden">
+                  ดูอีก {p.lines.length - p.collapseAfter} รายการ
+                </summary>
+                <ul className="divide-y divide-slate-200 border-t border-slate-200">
+                  {p.lines.slice(p.collapseAfter).map((line) => <PanelLineItem key={`more-${line.left}-${line.sub ?? ''}`} line={line} />)}
+                </ul>
+              </details> : null}
+          </> : null}
           {p.lines && !p.lines.length ? <p className="px-4 py-6 text-center text-[12px] text-slate-500">{p.empty ?? 'ไม่มีรายการ'}</p> : null}
           {p.performance ? <PerformanceOverview data={p.performance} title={p.title} /> : null}
           {p.rows?.length ?
@@ -384,15 +428,15 @@ function fmt(v: string | number | undefined, f: CellFmt = 'text') {
 }
 
 export function DataTable({
-  cols, rows, filters = [], actions, empty = 'ไม่พบข้อมูลตามเงื่อนไขที่เลือก'
+  cols, rows, filters = [], actions, empty = 'ไม่พบข้อมูลตามเงื่อนไขที่เลือก', initialQuery = ''
 
 
 
 
 
 
-}: {cols: Col[];rows: RowData[];filters?: FilterSpec[];actions?: (r: RowData) => RowAction[];empty?: string;}) {
-  const [q, setQ] = useState('');
+}: {cols: Col[];rows: RowData[];filters?: FilterSpec[];actions?: (r: RowData) => RowAction[];empty?: string;initialQuery?: string;}) {
+  const [q, setQ] = useState(initialQuery);
   const [sel, setSel] = useState<Record<string, string>>({});
   const [sort, setSort] = useState<{key: string;dir: 1 | -1;} | null>(null);
   const [page, setPage] = useState(1);
@@ -404,6 +448,8 @@ export function DataTable({
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
   }, []);
+
+  useEffect(() => setQ(initialQuery), [initialQuery]);
 
   const view = useMemo(() => {
     let out = rows.filter((r) => {
