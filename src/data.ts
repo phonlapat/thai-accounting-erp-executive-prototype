@@ -16,6 +16,7 @@ export interface Doc {
   id: string;no: string;kind: DocKind;contactId: string;date: string;due: string;
   lines: Line[];wht: number;status: string;paid: number;
   ref?: string;projectId?: string;pid?: string;qty?: number;wh?: string;received?: boolean;
+  reminderCount?: number;lastReminderAt?: string;
 }
 export interface Contact {
   id: string;code: string;type: 'customer' | 'supplier';nameTh: string;nameEn: string;
@@ -218,7 +219,7 @@ D('q2', 'QO690013', 'quote', 'c3', '2026-07-28', '2026-08-27', [li('p1', 12)], 0
 D('i1', 'IV690101', 'invoice', 'c1', '2026-03-12', '2026-04-11', [li('p1', 4), li('p5', 1)], 3, 'paid', { projectId: 'pj1' }),
 D('i2', 'IV690102', 'invoice', 'c2', '2026-04-08', '2026-05-23', [li('p2', 20)], 0, 'paid'),
 D('i3', 'IV690103', 'invoice', 'c3', '2026-04-24', '2026-06-23', [li('p3', 3), li('p5', 1)], 3, 'paid', { projectId: 'pj2' }),
-D('i4', 'IV690099', 'invoice', 'c4', '2026-04-30', '2026-05-30', [li('p4', 9)], 0, 'open'),
+D('i4', 'IV690099', 'invoice', 'c4', '2026-04-30', '2026-05-30', [li('p4', 9)], 0, 'open', { reminderCount: 2, lastReminderAt: '2026-07-24' }),
 D('i5', 'IV690104', 'invoice', 'c4', '2026-05-16', '2026-06-15', [li('p4', 6)], 0, 'paid'),
 D('i6', 'IV690105', 'invoice', 'c5', '2026-05-28', '2026-06-12', [li('p6', 1)], 3, 'paid', { projectId: 'pj3' }),
 D('i7', 'IV690106', 'invoice', 'c2', '2026-06-11', '2026-07-26', [li('p1', 3)], 0, 'open'),
