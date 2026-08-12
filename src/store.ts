@@ -1,7 +1,7 @@
 /* Selectors, reports and the localStorage-backed store */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  MONTHS, TODAY, addDays, baseOf, dueOf, docStatus, monthTH, netOf, nextNo, payItems, payTotals,
+  MONTHS, TODAY, addDays, baseOf, dueOf, docStatus, isPeakSnapshot, monthTH, netOf, nextNo, payItems, payTotals,
   seed, thb, uid, vatOf, whtOf } from
 './data';
 import type { AppData, Asset, BankTxn, Doc, Journal, JLine, Product } from './data';
@@ -568,6 +568,28 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
         }
         notify('บันทึกการจำหน่ายสินทรัพย์แล้ว');
         return log({ ...d, assets: d.assets.map((a) => a.id === id ? { ...a, status: 'disposed' } : a) }, 'จำหน่ายสินทรัพย์ถาวร', 'สินทรัพย์');
+      }),
+
+      importPeakSnapshot: (value: unknown) => {
+        if (!isPeakSnapshot(value)) {
+          notify('ไฟล์ PEAK ไม่ถูกต้องหรือเป็นคนละเวอร์ชัน', 'bad');
+          return false;
+        }
+        mut((d) => {
+          notify(`ใช้ข้อมูล PEAK ของ ${value.companyName} แล้ว`);
+          return log({ ...d, peakSnapshot: value }, `นำเข้าภาพรวม PEAK ณ ${value.asOf}`, 'ข้อมูล');
+        });
+        return true;
+      },
+
+      clearPeakSnapshot: () =>
+      mut((d) => {
+        if (!d.peakSnapshot) {
+          notify('ขณะนี้ใช้ข้อมูลสาธิตอยู่', 'bad');
+          return d;
+        }
+        notify('กลับมาใช้ข้อมูลสาธิตแล้ว');
+        return log({ ...d, peakSnapshot: undefined }, 'หยุดใช้ภาพรวม PEAK', 'ข้อมูล');
       }),
 
       reset: () => {

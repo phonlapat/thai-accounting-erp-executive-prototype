@@ -43,6 +43,31 @@ export interface Project {id: string;code: string;nameTh: string;owner: string;b
 export interface Approval {id: string;kind: 'bill' | 'expense' | 'payroll' | 'journal';refId: string;refNo: string;title: string;amount: number;requester: string;date: string;status: string;note?: string;}
 export interface Activity {id: string;at: string;actor: string;text: string;module: string;}
 
+/** A private, browser-local executive snapshot imported from PEAK. */
+export interface PeakSnapshot {
+  schemaVersion: 1;
+  source: 'PEAK';
+  companyName: string;
+  asOf: string;
+  capturedAt: string;
+  currency: 'THB';
+  ytd: {revenue: number;expenses: number;profit: number;};
+  income: {
+    issued: number;paid: number;overdue: number;overdueCount: number;
+    currentMonthSales: number;currentMonthSalesChangePct: number;
+    expiredQuotation: number;expiredQuotationCount: number;
+  };
+  expense: {
+    recorded: number;paid: number;overdue: number;overdueCount: number;
+    currentMonthRecorded: number;currentMonthCount: number;
+    overdueActionAmount: number;overdueActionCount: number;
+  };
+  taxes: {pp30: number;pnd1: number;pnd3: number;pnd53: number;};
+  salesMix: {product: number;service: number;};
+  topCustomers: Array<{name: string;amount: number;}>;
+  notes?: string[];
+}
+
 export interface AppData {
   company: {nameTh: string;nameEn: string;taxId: string;address: string;};
   contacts: Contact[];products: Product[];docs: Doc[];expenses: Expense[];
@@ -50,6 +75,44 @@ export interface AppData {
   employees: Employee[];payroll: PayRun[];assets: Asset[];projects: Project[];
   approvals: Approval[];activities: Activity[];
   settings: {closedThrough: string;threshold: number;};
+  peakSnapshot?: PeakSnapshot;
+}
+
+const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+const nonNegative = (value: unknown) => finite(value) && value >= 0;
+const wholeNonNegative = (value: unknown) => Number.isInteger(value) && Number(value) >= 0;
+const near = (left: number, right: number) => Math.abs(left - right) <= 0.02;
+
+/** Validate imported PEAK snapshots before they reach application state. */
+export function isPeakSnapshot(value: unknown): value is PeakSnapshot {
+  if (!value || typeof value !== 'object') return false;
+  const snapshot = value as Partial<PeakSnapshot>;
+  if (snapshot.schemaVersion !== 1 || snapshot.source !== 'PEAK' || snapshot.currency !== 'THB') return false;
+  if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim() || snapshot.companyName.length > 120) return false;
+  if (typeof snapshot.asOf !== 'string' || !Number.isFinite(Date.parse(snapshot.asOf))) return false;
+  if (typeof snapshot.capturedAt !== 'string' || !Number.isFinite(Date.parse(snapshot.capturedAt))) return false;
+  if (!snapshot.ytd || !snapshot.income || !snapshot.expense || !snapshot.taxes || !snapshot.salesMix) return false;
+  const nonNegativeMeasures = [
+    snapshot.ytd.revenue, snapshot.ytd.expenses,
+    snapshot.income.issued, snapshot.income.paid, snapshot.income.overdue,
+    snapshot.income.currentMonthSales, snapshot.income.expiredQuotation,
+    snapshot.expense.recorded, snapshot.expense.paid, snapshot.expense.overdue,
+    snapshot.expense.currentMonthRecorded, snapshot.expense.overdueActionAmount,
+    snapshot.taxes.pp30, snapshot.taxes.pnd1, snapshot.taxes.pnd3, snapshot.taxes.pnd53,
+    snapshot.salesMix.product, snapshot.salesMix.service
+  ];
+  if (!nonNegativeMeasures.every(nonNegative) || !finite(snapshot.ytd.profit) || !finite(snapshot.income.currentMonthSalesChangePct)) return false;
+  const counts = [snapshot.income.overdueCount, snapshot.income.expiredQuotationCount, snapshot.expense.overdueCount, snapshot.expense.currentMonthCount, snapshot.expense.overdueActionCount];
+  if (!counts.every(wholeNonNegative)) return false;
+  if (!near(snapshot.ytd.revenue - snapshot.ytd.expenses, snapshot.ytd.profit)) return false;
+  if (!near(snapshot.income.issued - snapshot.income.paid, snapshot.income.overdue)) return false;
+  if (!near(snapshot.expense.recorded - snapshot.expense.paid, snapshot.expense.overdue)) return false;
+  if (!near(snapshot.salesMix.product + snapshot.salesMix.service, snapshot.income.currentMonthSales)) return false;
+  if (!Array.isArray(snapshot.topCustomers) || snapshot.topCustomers.length > 20 || !snapshot.topCustomers.every((customer) =>
+    Boolean(customer && typeof customer.name === 'string' && customer.name.trim() && customer.name.length <= 160 && nonNegative(customer.amount))
+  )) return false;
+  if (!near(snapshot.topCustomers.reduce((sum, customer) => sum + customer.amount, 0), snapshot.income.currentMonthSales)) return false;
+  return snapshot.notes === undefined || (Array.isArray(snapshot.notes) && snapshot.notes.length <= 12 && snapshot.notes.every((note) => typeof note === 'string' && note.length <= 500));
 }
 
 const TM = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
