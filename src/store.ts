@@ -4,7 +4,7 @@ import {
   MONTHS, TODAY, addDays, baseOf, dueOf, docStatus, monthTH, netOf, nextNo, payItems, payTotals,
   seed, thb, uid, vatOf, whtOf } from
 './data';
-import type { AppData, Asset, Doc, Journal, JLine, Product } from './data';
+import type { AppData, Asset, BankTxn, Doc, Journal, JLine, Product } from './data';
 
 /* ---------------- lookups ---------------- */
 export const contactName = (d: AppData, id: string) => d.contacts.find((c) => c.id === id)?.nameTh ?? '—';
@@ -25,6 +25,53 @@ export const overdueList = (d: AppData) => arList(d).filter((x) => docStatus(x) 
 export const pendingList = (d: AppData) => d.approvals.filter((a) => a.status === 'pending');
 export const unmatchedList = (d: AppData) => d.bankTxns.filter((t) => !t.matched);
 export const draftJournals = (d: AppData) => d.journals.filter((j) => j.status === 'draft');
+
+export function cashForecast30(d: AppData) {
+  const end = addDays(TODAY, 30);
+  const inWindow = (due: string) => due >= TODAY && due <= end;
+  const inflow = arList(d).filter((doc) => inWindow(doc.due)).reduce((sum, doc) => sum + dueOf(doc), 0);
+  const outflow = d.docs
+    .filter((doc) => doc.kind === 'bill' && !['paid', 'rejected'].includes(doc.status) && dueOf(doc) > 0.5 && inWindow(doc.due))
+    .reduce((sum, doc) => sum + dueOf(doc), 0);
+  const payroll = d.payroll
+    .filter((run) => run.status !== 'paid' && inWindow(run.payDate))
+    .reduce((sum, run) => sum + payTotals(run).net, 0);
+  const opening = cash(d);
+  const overdueInflow = arList(d).filter((doc) => doc.due < TODAY).reduce((sum, doc) => sum + dueOf(doc), 0);
+  const overdueOutflow = d.docs
+    .filter((doc) => doc.kind === 'bill' && !['paid', 'rejected'].includes(doc.status) && dueOf(doc) > 0.5 && doc.due < TODAY)
+    .reduce((sum, doc) => sum + dueOf(doc), 0);
+  return { opening, inflow, outflow, payroll, overdueInflow, overdueOutflow, end, closing: opening + inflow - outflow - payroll };
+}
+
+export interface BankSuggestion {ref: string;label: string;confidence: number;}
+
+export function bankSuggestion(d: AppData, transaction: BankTxn): BankSuggestion | undefined {
+  const description = transaction.desc.toLocaleLowerCase('th');
+  const referencedNo = transaction.desc.match(/\b(?:IV|BL)\d+\b/i)?.[0]?.toUpperCase();
+  const referencedDoc = referencedNo ? d.docs.find((doc) => doc.no === referencedNo) : undefined;
+  if (referencedDoc) return { ref: referencedDoc.no, label: `${referencedDoc.no} · ${contactName(d, referencedDoc.contactId)}`, confidence: 99 };
+  if (description.includes('ค่าธรรมเนียม')) return { ref: 'ADJ-BANK-FEE', label: 'ค่าธรรมเนียมธนาคาร', confidence: 98 };
+  if (description.includes('ดอกเบี้ยรับ')) return { ref: 'ADJ-INTEREST', label: 'ดอกเบี้ยรับ', confidence: 98 };
+  if (description.includes('เงินสดย่อย')) return { ref: 'TRF-PETTY-CASH', label: 'โอนเงินสดย่อย', confidence: 96 };
+
+  const candidates = d.docs
+    .filter((doc) => doc.kind === 'invoice' || doc.kind === 'bill')
+    .map((doc) => {
+      const signedAmount = (doc.kind === 'bill' ? -1 : 1) * netOf(doc.lines, doc.wht);
+      return { doc, difference: Math.abs(signedAmount - transaction.amount) };
+    })
+    .sort((left, right) => left.difference - right.difference);
+  const best = candidates[0];
+  if (!best) return undefined;
+  const ratio = best.difference / Math.max(1, Math.abs(transaction.amount));
+  if (ratio > 0.02) return undefined;
+  return {
+    ref: best.doc.no,
+    label: `${best.doc.no} · ${contactName(d, best.doc.contactId)}`,
+    confidence: ratio <= 0.0001 ? 99 : ratio <= 0.005 ? 94 : 82
+  };
+}
 
 export const stockOf = (p: Product) => p.wh1 + p.wh2;
 export const invValue = (d: AppData) =>
@@ -185,7 +232,7 @@ function load(): AppData {
   return seed();
 }
 
-export function useStore() {
+export function useStore(actor = 'ผู้ใช้เดโม') {
   const [data, setData] = useState<AppData>(load);
   const dataRef = useRef(data);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -216,7 +263,7 @@ export function useStore() {
   const actions = useMemo(() => {
     const log = (d: AppData, text: string, module: string): AppData => ({
       ...d,
-      activities: [{ id: uid('g'), at: `${dateStamp()} น.`, actor: 'สมชาย ธนกิจพัฒนา', text, module }, ...d.activities].slice(0, 40)
+      activities: [{ id: uid('g'), at: `${dateStamp()} น.`, actor, text, module }, ...d.activities].slice(0, 40)
     });
     /* Keep a synchronous snapshot so rapid consecutive actions cannot overwrite each other. */
     const mut = (fn: (d: AppData) => AppData) => {
@@ -260,6 +307,21 @@ export function useStore() {
           docs: [receipt, ...d.docs.map((x) => x.id === id ? { ...x, paid: netOf(x.lines, x.wht), status: 'paid' } : x)],
           bankTxns: [{ id: uid('bt'), accountId: 'ba1', date: TODAY, desc: `รับชำระตามใบแจ้งหนี้ ${inv.no}`, amount, matched: true, ref: inv.no }, ...d.bankTxns]
         }, `รับชำระใบแจ้งหนี้ ${inv.no}`, 'การเงิน');
+      }),
+
+      recordPaymentReminder: (id: string) =>
+      mut((d) => {
+        const invoice = d.docs.find((doc) => doc.id === id);
+        if (!invoice || invoice.kind !== 'invoice' || docStatus(invoice) !== 'overdue') {
+          notify('รายการนี้ไม่ใช่ใบแจ้งหนี้เกินกำหนด', 'bad');
+          return d;
+        }
+        const count = (invoice.reminderCount ?? 0) + 1;
+        notify(`บันทึกการเตือนชำระ ${invoice.no} แล้ว (สาธิต)`);
+        return log({
+          ...d,
+          docs: d.docs.map((doc) => doc.id === id ? { ...doc, reminderCount: count, lastReminderAt: TODAY } : doc)
+        }, `บันทึกการเตือนชำระ ${invoice.no} ครั้งที่ ${count} (สาธิต)`, 'ขาย');
       }),
 
       /* 2 — procure to pay */
@@ -416,13 +478,32 @@ export function useStore() {
           notify('รายการธนาคารนี้จับคู่แล้ว', 'bad');
           return d;
         }
-        const pool = d.docs.filter((x) => x.kind === 'invoice' || x.kind === 'bill');
-        const best = pool.sort((a, b) =>
-        Math.abs((a.kind === 'bill' ? -1 : 1) * netOf(a.lines, a.wht) - t.amount) -
-        Math.abs((b.kind === 'bill' ? -1 : 1) * netOf(b.lines, b.wht) - t.amount))[0];
-        const ref = best?.no ?? 'ADJ-001';
+        const suggestion = bankSuggestion(d, t);
+        if (!suggestion) {
+          notify('ยังไม่มีคำแนะนำที่มั่นใจสำหรับรายการนี้', 'bad');
+          return d;
+        }
+        const ref = suggestion.ref;
         notify(`จับคู่รายการเดินบัญชีกับเอกสาร ${ref} แล้ว`);
         return log({ ...d, bankTxns: d.bankTxns.map((x) => x.id === id ? { ...x, matched: true, ref } : x) }, `จับคู่รายการธนาคารกับ ${ref}`, 'ธนาคาร');
+      }),
+
+      matchSuggestedTxns: () =>
+      mut((d) => {
+        const suggestions = d.bankTxns
+          .filter((transaction) => !transaction.matched)
+          .map((transaction) => ({ transaction, suggestion: bankSuggestion(d, transaction) }))
+          .filter((item): item is {transaction: BankTxn;suggestion: BankSuggestion;} => Boolean(item.suggestion));
+        if (!suggestions.length) {
+          notify('ไม่มีคำแนะนำใหม่ให้จับคู่', 'bad');
+          return d;
+        }
+        const byId = new Map(suggestions.map((item) => [item.transaction.id, item.suggestion.ref]));
+        notify(`จับคู่รายการที่แนะนำแล้ว ${suggestions.length} รายการ`);
+        return log({
+          ...d,
+          bankTxns: d.bankTxns.map((transaction) => byId.has(transaction.id) ? { ...transaction, matched: true, ref: byId.get(transaction.id) } : transaction)
+        }, `ยืนยันคำแนะนำจับคู่ธนาคาร ${suggestions.length} รายการ`, 'ธนาคาร');
       }),
 
       unmatchTxn: (id: string) =>
@@ -501,7 +582,7 @@ export function useStore() {
         notify('คืนค่าข้อมูลตัวอย่างเรียบร้อย');
       }
     };
-  }, [notify]);
+  }, [actor, notify]);
 
   return { data, actions, toasts, storageIssue };
 }

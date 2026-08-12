@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircleIcon, BarChart3Icon, BookOpenIcon, Building2Icon, BoxesIcon, CheckCircle2Icon, ChevronsLeftIcon,
-  ChevronsRightIcon, ClipboardCheckIcon, EyeIcon, EyeOffIcon, FileTextIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
+  ChevronsRightIcon, ClipboardCheckIcon, EyeIcon, EyeOffIcon, FileTextIcon, HistoryIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
   LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShieldCheckIcon, ShoppingCartIcon, UsersIcon, WalletIcon, XIcon } from
 'lucide-react';
 import {
@@ -9,7 +9,7 @@ import {
 './data';
 import type { AppData, Tone } from './data';
 import {
-  acctName, aging, ap, apList, ar, arList, bookValue, cash, cashOf, contactName, depMonthly, depPerMonth, draftJournals,
+  acctName, aging, ap, apList, ar, arList, bankSuggestion, bookValue, cash, cashForecast30, cashOf, contactName, depMonthly, depPerMonth, draftJournals,
   empName, invValue, ledger, lowStock, overdueList, pendingList, pl, projName, projectPL, series, stockOf, trialBalance,
   unmatchedList, useStore, vatReport, whtRows } from
 './store';
@@ -85,6 +85,7 @@ const SALES: Col[] = [
 { key: 'wht', header: 'หัก ณ ที่จ่าย', fmt: 'money', right: true, hide: 'lg' },
 { key: 'net', header: 'ยอดสุทธิ', fmt: 'money', right: true, total: true },
 { key: 'out', header: 'คงค้าง', fmt: 'money', right: true, total: true, hide: 'sm' },
+{ key: 'followUp', header: 'ติดตาม', hide: 'lg' },
 { key: 'status', header: 'สถานะ', fmt: 'status' }];
 
 
@@ -92,6 +93,7 @@ const docRow = (d: AppData, x: AppData['docs'][number]): RowData => ({
   id: x.id, no: x.no, kindTh: KIND_TH[x.kind], contact: contactName(d, x.contactId), date: x.date, due: x.due,
   base: baseOf(x.lines), vat: vatOf(x.lines), wht: whtOf(x.lines, x.wht), net: netOf(x.lines, x.wht),
   out: x.kind === 'invoice' || x.kind === 'bill' ? dueOf(x) : 0,
+  followUp: x.kind === 'invoice' && x.reminderCount ? `เตือน ${x.reminderCount} ครั้ง · ${dateTH(x.lastReminderAt)}` : '—',
   status: docStatus(x), kind: x.kind, received: x.received ? 'y' : 'n'
 });
 
@@ -104,9 +106,10 @@ const CORE: Mod[] = [
     const latest = series(d).slice(-1)[0];
     const latestOpen = latest ? latest.month > d.settings.closedThrough.slice(0, 7) : false;
     const urgent = dashboardAlerts(d).length;
+    const forecast = cashForecast30(d);
     return [
     { label: 'กำไรล่าสุด', sub: latest ? `${dateTH(`${latest.month}-01`).split(' ').slice(1).join(' ')} · ${latestOpen ? 'ยังไม่ปิดงวด' : 'ปิดงวดแล้ว'}` : undefined, value: latest ? `${latest.profit > 0 ? '+' : ''}${thb(latest.profit, true)}` : '—', tone: (latest && latest.profit < 0 ? 'bad' : 'ok') as Tone },
-    { label: 'เงินสด', value: thb(cash(d), true), tone: 'info' as Tone },
+    { label: 'เงินสดอีก 30 วัน', sub: 'ไม่รวมยอดเกินกำหนด', value: thb(forecast.closing, true), tone: (forecast.closing < 0 ? 'bad' : 'info') as Tone },
     { label: 'เร่งด่วน', value: String(urgent), tone: urgent ? 'bad' : 'ok' as Tone },
     { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' as Tone }];
   },
@@ -193,8 +196,12 @@ const CORE: Mod[] = [
 
   actions: (r, a) => {
     if (r.kind === 'quote' && r.status !== 'converted') return [{ label: 'สร้างใบแจ้งหนี้', run: () => a.convertQuote(r.id) }];
-    if (r.kind === 'invoice' && N(r.out) > 0.5) return [{ label: 'รับชำระ', run: () => a.receivePayment(r.id),
-      confirm: { title: `รับชำระ ${String(r.no)}?`, description: `ระบบจะบันทึกรับเงิน ${thb(N(r.out))} และออกใบเสร็จรับเงิน`, confirmLabel: 'ยืนยันรับชำระ' } }];
+    if (r.kind === 'invoice' && N(r.out) > 0.5) return [
+      { label: 'รับชำระ', run: () => a.receivePayment(r.id),
+        confirm: { title: `รับชำระ ${String(r.no)}?`, description: `ระบบจะบันทึกรับเงิน ${thb(N(r.out))} และออกใบเสร็จรับเงิน`, confirmLabel: 'ยืนยันรับชำระ' } },
+      ...(r.status === 'overdue' ? [{ label: 'บันทึกเตือน', run: () => a.recordPaymentReminder(r.id), variant: 'ghost' as const,
+        confirm: { title: `บันทึกการเตือน ${String(r.no)}?`, description: 'เดโมจะเพิ่มประวัติการติดตามเท่านั้น และจะไม่ส่งอีเมลจริง', confirmLabel: 'บันทึกการเตือน' } }] : [])
+    ];
     return [];
   }
 },
@@ -286,6 +293,25 @@ const CORE: Mod[] = [
     confirm: { title: `อนุมัติ ${String(r.refNo ?? 'รายการนี้')}?`, description: `ระบบจะอนุมัติยอด ${thb(N(r.amount))} และปลดล็อกขั้นตอนถัดไป`, confirmLabel: 'ยืนยันอนุมัติ' } }, { label: 'ไม่อนุมัติ', run: () => a.decide(r.id, false), danger: true,
     confirm: { title: `ไม่อนุมัติ ${String(r.refNo ?? 'รายการนี้')}?`, description: 'รายการจะถูกส่งกลับและขั้นตอนถัดไปจะไม่ถูกดำเนินการ', confirmLabel: 'ยืนยันไม่อนุมัติ' } }] :
   []
+},
+{
+  id: 'audit', th: 'ประวัติการทำงาน', en: 'Audit trail', group: 'ภาพรวม', icon: HistoryIcon,
+  desc: 'ตรวจสอบว่าใครทำอะไร เมื่อใด และกระทบงานส่วนไหน',
+  kpis: (d) => [
+  { label: 'กิจกรรมล่าสุด', value: `${d.activities.length} รายการ` },
+  { label: 'ผู้ใช้งาน', value: `${new Set(d.activities.map((item) => item.actor)).size} คน` },
+  { label: 'ส่วนงาน', value: `${new Set(d.activities.map((item) => item.module)).size} ส่วน` },
+  { label: 'ล่าสุด', value: d.activities[0]?.at ?? '—', tone: 'info' }],
+  title: 'ประวัติการทำงาน', sub: 'การทำรายการในเดโมจะถูกเพิ่มไว้ที่นี่',
+  cols: [
+  { key: 'at', header: 'เวลา', hide: 'sm' },
+  { key: 'actor', header: 'ผู้ทำรายการ' },
+  { key: 'text', header: 'กิจกรรม' },
+  { key: 'module', header: 'ส่วนงาน', hide: 'md' }],
+  rows: (d) => d.activities.map((item) => ({ id: item.id, at: item.at, actor: item.actor, text: item.text, module: item.module })),
+  filters: (d) => [
+  { key: 'module', label: 'ส่วนงาน', options: Array.from(new Set(d.activities.map((item) => item.module))).map((value) => ({ value, label: value })) },
+  { key: 'actor', label: 'ผู้ใช้งาน', options: Array.from(new Set(d.activities.map((item) => item.actor))).map((value) => ({ value, label: value })) }]
 }];
 
 
@@ -390,29 +416,49 @@ const MASTER: Mod[] = [
   { label: 'เงินเข้าเดือนนี้', value: thb(d.bankTxns.filter((t) => t.date.slice(0, 7) === MONTH && t.amount > 0).reduce((s, t) => s + t.amount, 0), true), tone: 'ok' },
   { label: 'เงินออกเดือนนี้', value: thb(d.bankTxns.filter((t) => t.date.slice(0, 7) === MONTH && t.amount < 0).reduce((s, t) => s + t.amount, 0), true), tone: 'bad' }],
 
-  panels: (d, a) => d.bankAccts.map((b) => ({
-    title: b.nameTh, sub: `${b.bank} · ${b.no}`,
-    rows: [
-    ['ยอดคงเหลือ', thb(cashOf(d, b.id)), true],
-    ['กระทบยอดถึง', b.reconciled ? dateTH(b.reconciled) : 'ยังไม่เคยกระทบยอด'],
-    ['รายการรอจับคู่', `${d.bankTxns.filter((t) => t.accountId === b.id && !t.matched).length} รายการ`]] as
-    Array<[string, string, boolean?]>,
-    action: { label: `กระทบยอดถึง ${dateTH(TODAY)}`, run: () => a.reconcile(b.id), disabled: d.bankTxns.some((t) => t.accountId === b.id && !t.matched),
-      confirm: { title: `กระทบยอด ${b.nameTh}?`, description: 'ระบบจะบันทึกวันที่กระทบยอดเมื่อรายการทั้งหมดถูกจับคู่แล้ว', confirmLabel: 'ยืนยันกระทบยอด' } }
-  })),
+  panels: (d, a) => {
+    const suggested = unmatchedList(d)
+      .map((transaction) => ({ transaction, suggestion: bankSuggestion(d, transaction) }))
+      .filter((item) => Boolean(item.suggestion));
+    return [
+    {
+      title: 'คำแนะนำการจับคู่', sub: `${suggested.length} จาก ${unmatchedList(d).length} รายการ`, full: true,
+      rows: [
+      ['มีคำแนะนำ', `${suggested.length} รายการ`, true],
+      ['ต้องตรวจเอง', `${unmatchedList(d).length - suggested.length} รายการ`]] as Array<[string, string, boolean?]>,
+      action: { label: `ยืนยัน ${suggested.length} รายการ`, run: a.matchSuggestedTxns, disabled: suggested.length === 0,
+        confirm: { title: `ยืนยันคำแนะนำ ${suggested.length} รายการ?`, description: 'ระบบจะใช้ยอดเงินและข้อความอ้างอิงเพื่อจับคู่ คุณยังยกเลิกแต่ละรายการได้', confirmLabel: 'ยืนยันทั้งหมด' } },
+      note: 'เป็นคำแนะนำจากข้อมูลสาธิต ไม่ได้เชื่อมต่อธนาคารจริง'
+    },
+    ...d.bankAccts.map((b) => ({
+      title: b.nameTh, sub: `${b.bank} · ${b.no}`,
+      rows: [
+      ['ยอดคงเหลือ', thb(cashOf(d, b.id)), true],
+      ['กระทบยอดถึง', b.reconciled ? dateTH(b.reconciled) : 'ยังไม่เคยกระทบยอด'],
+      ['รายการรอจับคู่', `${d.bankTxns.filter((t) => t.accountId === b.id && !t.matched).length} รายการ`]] as
+      Array<[string, string, boolean?]>,
+      action: { label: `กระทบยอดถึง ${dateTH(TODAY)}`, run: () => a.reconcile(b.id), disabled: d.bankTxns.some((t) => t.accountId === b.id && !t.matched),
+        confirm: { title: `กระทบยอด ${b.nameTh}?`, description: 'ระบบจะบันทึกวันที่กระทบยอดเมื่อรายการทั้งหมดถูกจับคู่แล้ว', confirmLabel: 'ยืนยันกระทบยอด' } }
+    }))];
+  },
   title: 'รายการธนาคาร',
   cols: [
   { key: 'date', header: 'วันที่', fmt: 'date' },
   { key: 'account', header: 'บัญชี', hide: 'sm' },
   { key: 'desc', header: 'รายละเอียด' },
+  { key: 'suggestion', header: 'คำแนะนำ', hide: 'md' },
   { key: 'ref', header: 'เอกสารอ้างอิง', fmt: 'mono', hide: 'lg' },
   { key: 'amount', header: 'จำนวนเงิน', fmt: 'money', right: true, total: true },
   { key: 'status', header: 'สถานะ', fmt: 'status' }],
 
-  rows: (d) => d.bankTxns.map((t) => ({
-    id: t.id, date: t.date, account: d.bankAccts.find((b) => b.id === t.accountId)?.nameTh ?? '—',
-    desc: t.desc, ref: t.ref, amount: t.amount, status: t.matched ? 'matched' : 'unmatched'
-  })),
+  rows: (d) => d.bankTxns.map((t) => {
+    const suggestion = t.matched ? undefined : bankSuggestion(d, t);
+    return {
+      id: t.id, date: t.date, account: d.bankAccts.find((b) => b.id === t.accountId)?.nameTh ?? '—',
+      desc: t.desc, suggestion: t.matched ? '—' : suggestion ? `${suggestion.label} · ${suggestion.confidence}%` : 'ตรวจเอง',
+      suggestedRef: suggestion?.ref, ref: t.ref, amount: t.amount, status: t.matched ? 'matched' : 'unmatched'
+    };
+  }),
   filters: (d) => [
   { key: 'account', label: 'บัญชี', options: d.bankAccts.map((b) => ({ value: b.nameTh, label: b.nameTh })) },
   { key: 'status', label: 'สถานะ', options: opts(['matched', 'unmatched']) }],
@@ -420,8 +466,8 @@ const MASTER: Mod[] = [
   actions: (r, a) => r.status === 'matched' ?
   [{ label: 'ยกเลิกจับคู่', run: () => a.unmatchTxn(r.id), danger: true,
     confirm: { title: 'ยกเลิกการจับคู่?', description: 'รายการธนาคารนี้จะกลับไปอยู่ในรายการรอตรวจสอบ', confirmLabel: 'ยืนยันยกเลิก' } }] :
-  [{ label: 'จับคู่อัตโนมัติ', run: () => a.matchTxn(r.id),
-    confirm: { title: 'จับคู่รายการอัตโนมัติ?', description: 'ระบบจะเลือกเอกสารที่มียอดใกล้เคียงที่สุด คุณสามารถยกเลิกการจับคู่ได้ภายหลัง', confirmLabel: 'ยืนยันจับคู่' } }]
+  [{ label: r.suggestedRef ? 'ยืนยันจับคู่' : 'ตรวจเอง', run: () => a.matchTxn(r.id), disabled: !r.suggestedRef,
+    confirm: r.suggestedRef ? { title: `จับคู่กับ ${String(r.suggestedRef)}?`, description: 'ยืนยันคำแนะนำจากยอดเงินและข้อความอ้างอิง คุณสามารถยกเลิกภายหลังได้', confirmLabel: 'ยืนยันจับคู่' } : undefined }]
 },
 {
   id: 'accounting', th: 'บัญชีแยกประเภท', en: 'Accounting', group: 'บัญชีและภาษี', icon: BookOpenIcon,
@@ -490,8 +536,8 @@ const MASTER: Mod[] = [
 }];
 
 
-const CALENDAR = [
-{ form: 'ภ.พ.30', desc: 'แบบแสดงรายการภาษีมูลค่าเพิ่ม (VAT return)', due: '2026-08-15' },
+const CALENDAR: Array<{form: string;desc: string;due: string;onlineDue?: string;}> = [
+{ form: 'ภ.พ.30', desc: 'แบบแสดงรายการภาษีมูลค่าเพิ่ม (VAT return)', due: '2026-08-17', onlineDue: '2026-08-24' },
 { form: 'ภ.ง.ด.53', desc: 'ภาษีหัก ณ ที่จ่าย นิติบุคคล', due: '2026-08-07' },
 { form: 'ภ.ง.ด.1', desc: 'ภาษีหัก ณ ที่จ่าย เงินเดือน', due: '2026-08-07' },
 { form: 'สปส.1-10', desc: 'เงินสมทบประกันสังคม', due: '2026-08-15' },
@@ -507,13 +553,26 @@ const FINANCE: Mod[] = [
   { label: 'ภาษีซื้อ', sub: monthTH(MONTH), value: thb(vatReport(d, MONTH).inVat, true) },
   { label: 'ภาษีที่ต้องชำระ', sub: 'ภ.พ.30', value: thb(vatReport(d, MONTH).net, true), tone: vatReport(d, MONTH).net >= 0 ? 'warn' : 'ok' },
   { label: 'ภาษีหัก ณ ที่จ่ายนำส่ง', value: thb(whtRows(d, MONTH).reduce((s, r) => s + r.amount, 0), true) },
-  { label: 'กำหนดยื่น ภ.พ.30', value: dateTH('2026-08-15'), tone: 'info' }],
+  { label: 'ยื่น ภ.พ.30', sub: 'กระดาษ / ออนไลน์', value: '17 / 24 ส.ค. 69', tone: 'info' }],
 
-  panels: (d) => {
+  panels: (d, _actions, navigate) => {
     const v = vatReport(d, MONTH);
     const run = d.payroll.find((p) => p.period === MONTH);
     const t = run ? payTotals(run) : { wht: 0, sso: 0, gross: 0, net: 0 };
+    const taxInvoices = d.docs.filter((doc) => doc.kind === 'invoice' && doc.date.slice(0, 7) === MONTH);
+    const completeBuyerData = taxInvoices.filter((doc) => Boolean(d.contacts.find((contact) => contact.id === doc.contactId)?.taxId)).length;
+    const validVat = taxInvoices.filter((doc) => doc.lines.every((line) => line.vat === 7)).length;
+    const periodClosed = d.settings.closedThrough >= `${MONTH}-31`;
     return [
+    {
+      title: 'ความพร้อมเอกสารภาษี', wide: true,
+      lines: [
+      { left: 'ข้อมูลผู้ซื้อครบ', sub: `${completeBuyerData}/${taxInvoices.length} ใบแจ้งหนี้`, status: completeBuyerData === taxInvoices.length ? 'posted' : 'pending' },
+      { left: 'VAT ตรวจครบ', sub: `${validVat}/${taxInvoices.length} เอกสาร`, status: validVat === taxInvoices.length ? 'posted' : 'pending' },
+      { left: 'ปิดงวดบัญชี', sub: periodClosed ? 'พร้อมตรวจยอดก่อนยื่น' : `ปิดถึง ${dateTH(d.settings.closedThrough)}`, status: periodClosed ? 'posted' : 'pending' }],
+      action: { label: 'ไปปิดงวด', run: () => navigate('accounting'), variant: 'ghost' as const },
+      note: 'ตรวจความพร้อมจากข้อมูลสาธิตเท่านั้น · ยังไม่ส่ง e-Tax หรือยื่นแบบจริง'
+    },
     {
       title: `ภ.พ.30 · ${monthTH(MONTH)}`,
       rows: [
@@ -521,11 +580,11 @@ const FINANCE: Mod[] = [
       ['ยอดซื้อที่มีภาษีซื้อ', thb(v.buyBase)], ['ภาษีซื้อ (Input VAT)', thb(v.inVat)],
       [v.net >= 0 ? 'ภาษีที่ต้องชำระ' : 'ภาษีชำระเกิน (ขอคืน)', thb(Math.abs(v.net)), true]] as
       Array<[string, string, boolean?]>,
-      note: 'ยื่นภายในวันที่ 15 ของเดือนถัดไป'
+      note: 'ภ.พ.30 งวดนี้: กระดาษ 17 ส.ค. · ออนไลน์ 24 ส.ค. 69'
     },
     {
       title: 'วันครบกำหนด', wide: true,
-      lines: CALENDAR.map((c) => ({ left: `${c.form} — ${c.desc}`, sub: `กำหนดยื่น ${dateTH(c.due)}`, status: 'pending' }))
+      lines: CALENDAR.map((c) => ({ left: `${c.form} — ${c.desc}`, sub: c.onlineDue ? `กระดาษ ${dateTH(c.due)} · ออนไลน์ ${dateTH(c.onlineDue)}` : `กำหนดยื่น ${dateTH(c.due)}`, status: 'pending' }))
     },
     {
       title: 'ภาษีและเงินสมทบจากเงินเดือน', sub: `งวด ${monthTH(MONTH)}`,
@@ -670,7 +729,7 @@ const FINANCE: Mod[] = [
       amount: d.docs.filter((x) => x.kind === 'invoice' && x.contactId === c.id).reduce((s, x) => s + baseOf(x.lines), 0)
     })).sort((a, b) => b.amount - a.amount);
     const maxCust = Math.max(...byCustomer.map((c) => c.amount), 1);
-    const payrollDue = d.payroll.filter((x) => x.status !== 'paid').reduce((s, x) => s + payTotals(x).net, 0);
+    const forecast = cashForecast30(d);
     return [
     {
       title: 'งบกำไรขาดทุน', sub: `มี.ค. – ${monthTH(MONTH)} 2569`, wide: true,
@@ -685,12 +744,13 @@ const FINANCE: Mod[] = [
 
     },
     {
-      title: 'ประมาณการเงินสด',
+      title: 'เงินสด 30 วัน', sub: `ถึง ${dateTH(forecast.end)}`,
       rows: [
-      ['เงินสดและเงินฝากคงเหลือ', thb(cash(d))], ['คาดว่าจะรับจากลูกหนี้', thb(ar(d))],
-      ['ภาระจ่ายเจ้าหนี้', thb(-ap(d))], ['เงินเดือนที่ยังไม่จ่าย', thb(-payrollDue)],
-      ['ประมาณการเงินสดปลายงวด', thb(cash(d) + ar(d) - ap(d) - payrollDue), true]] as
-      Array<[string, string, boolean?]>
+      ['เงินสดวันนี้', thb(forecast.opening)], ['คาดว่าจะรับ', thb(forecast.inflow)],
+      ['บิลที่ต้องจ่าย', thb(-forecast.outflow)], ['เงินเดือนค้างจ่าย', thb(-forecast.payroll)],
+      ['คาดว่าจะเหลือ', thb(forecast.closing), true]] as
+      Array<[string, string, boolean?]>,
+      note: `ไม่รวมยอดเกินกำหนด: ลูกหนี้ ${thb(forecast.overdueInflow)} · เจ้าหนี้ ${thb(forecast.overdueOutflow)}`
     },
     { title: 'อายุลูกหนี้', bars: arB.map((b) => ({ label: b.label, note: thb(b.amount), value: b.amount, max: maxAr, tone: (b.label === 'ยังไม่ครบกำหนด' ? 'info' : 'warn') as Tone })) },
     { title: 'อายุเจ้าหนี้', bars: apB.map((b) => ({ label: b.label, note: thb(b.amount), value: b.amount, max: maxAp, tone: (b.label === 'ยังไม่ครบกำหนด' ? 'info' : 'warn') as Tone })) },
@@ -716,7 +776,7 @@ const FINANCE: Mod[] = [
 
 const MODULES: Mod[] = [...CORE, ...MASTER, ...FINANCE];
 const GROUPS = [
-  { label: 'หน้าหลัก', ids: ['dashboard', 'approvals'] },
+  { label: 'หน้าหลัก', ids: ['dashboard', 'approvals', 'audit'] },
   { label: 'ซื้อและขาย', ids: ['sales', 'purchases', 'expenses'] },
   { label: 'งานประจำ', ids: ['contacts', 'products', 'inventory', 'banking', 'payroll'] },
   { label: 'บัญชีและรายงาน', ids: ['accounting', 'tax', 'assets', 'projects', 'reports'] }
@@ -782,7 +842,8 @@ function readCollapsed() {
 }
 
 function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () => void;}) {
-  const { data, actions, toasts, storageIssue } = useStore();
+  const actor = session.email === 'demo@sample.local' ? 'ผู้ใช้เดโม' : session.email;
+  const { data, actions, toasts, storageIssue } = useStore(actor);
   const [active, setActive] = useState(moduleFromLocation);
   const [tableQuery, setTableQuery] = useState(queryFromLocation);
   const [collapsed, setCollapsed] = useState(readCollapsed);
