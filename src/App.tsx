@@ -36,18 +36,66 @@ const opts = (vals: string[]) => Array.from(new Set(vals)).map((v) => ({ value: 
 const N = (v: string | number | undefined) => Number(v ?? 0);
 const daysBetween = (from: string, to: string) => Math.floor((Date.parse(to) - Date.parse(from)) / 864e5);
 
-const peakTaxTotal = (snapshot: PeakSnapshot) =>
-snapshot.taxes.pp30 + snapshot.taxes.pnd1 + snapshot.taxes.pnd3 + snapshot.taxes.pnd53;
-
 function peakDashboardPanels(snapshot: PeakSnapshot): PanelSpec[] {
   const asOf = dateTH(snapshot.asOf.slice(0, 10));
+  const monthly = [...snapshot.monthlyPL].sort((left, right) => left.month.localeCompare(right.month));
+  const latest = monthly[monthly.length - 1];
+  const previous = monthly[monthly.length - 2];
+  const monthlyTotal = monthly.reduce((sum, item) => sum + item.profit, 0);
+  const profitableMonths = monthly.filter((item) => item.profit >= 0).length;
+  const worst = monthly.reduce((result, item) => item.profit < result.profit ? item : result, monthly[0]);
+  const latestLabel = dateTH(`${latest.month}-01`).split(' ').slice(1).join(' ');
+  const worstLabel = dateTH(`${worst.month}-01`).split(' ')[1];
+  const change = latest.partial ? undefined : latest.profit - previous.profit;
   return [
   {
-    title: 'ผลประกอบการปี 2569', sub: `งบกำไรขาดทุน · PEAK ณ ${asOf}`, wide: true,
-    rows: [
-    ['รายได้', thb(snapshot.ytd.revenue)],
-    ['ค่าใช้จ่าย', thb(snapshot.ytd.expenses)],
-    ['กำไรสุทธิ', thb(snapshot.ytd.profit), true]]
+    title: 'กำไรรายเดือน', sub: `${monthly.length} เดือนล่าสุด · งบกำไรขาดทุน PEAK`, dashboardArea: 'performance',
+    performance: {
+      period: latestLabel,
+      periodState: latest.partial ? `ถึง ${asOf}` : 'ปิดเดือนแล้ว',
+      revenue: thb(latest.revenue, true), expense: thb(latest.expenses, true),
+      profit: `${latest.profit > 0 ? '+' : ''}${thb(latest.profit, true)}`, profitValue: latest.profit,
+      change: change === undefined ? undefined : `${change >= 0 ? '+' : ''}${thb(change, true)}`,
+      changeLabel: change === undefined ? undefined : `${change >= 0 ? 'ดีขึ้น' : 'ลดลง'}จาก ${dateTH(`${previous.month}-01`).split(' ')[1]}`,
+      changePositive: change === undefined ? undefined : change >= 0,
+      interpretation: `${profitableMonths} จาก ${monthly.length} เดือนเป็นกำไร · เดือน ${worstLabel} ต่ำสุด`,
+      total: thb(monthlyTotal, true), totalPositive: monthlyTotal >= 0,
+      profitableMonths: `${profitableMonths} จาก ${monthly.length} เดือน`,
+      points: monthly.map((item, index) => ({
+        label: dateTH(`${item.month}-01`).split(' ')[1], value: item.profit,
+        note: thb(item.profit, true), current: index === monthly.length - 1, open: Boolean(item.partial)
+      }))
+    }
+  },
+  {
+    title: 'ต้องตรวจสอบ', sub: `${snapshot.qualityFindings.length} จุดจากการเทียบหน้ารายงาน`, dashboardArea: 'urgent',
+    lines: snapshot.qualityFindings.map((finding) => ({
+      left: finding.title, sub: finding.detail, right: 'ตรวจสอบ', tone: finding.severity
+    })),
+    empty: 'ยอดสำคัญตรงกัน'
+  },
+  {
+    title: 'ฐานะการเงิน', sub: `งบ ณ ${asOf}`, dashboardArea: 'approvals',
+    lines: [
+    { left: 'สินทรัพย์', right: thb(snapshot.financialPosition.totalAssets, true) },
+    { left: 'หนี้สิน', right: thb(snapshot.financialPosition.totalLiabilities, true) },
+    { left: 'ส่วนของผู้ถือหุ้น', right: thb(snapshot.financialPosition.equity, true) },
+    { left: 'สภาพคล่อง', sub: `หนี้ต่อทุน ${snapshot.financialPosition.debtToEquity.toFixed(1)} เท่า`, right: `${snapshot.financialPosition.currentRatio.toFixed(1)} เท่า`, tone: snapshot.financialPosition.currentRatio < 1.2 ? 'warn' : 'ok' }]
+  },
+  {
+    title: 'ยอดขายเดือนนี้', sub: `ถึง ${asOf} · ${snapshot.income.currentMonthSalesChangePct.toFixed(2)}% จากเดือนก่อน`, wide: true,
+    bars: [
+    { label: 'สินค้า', note: thb(snapshot.salesMix.product), value: snapshot.salesMix.product, max: snapshot.income.currentMonthSales, tone: 'info' },
+    { label: 'บริการ', note: thb(snapshot.salesMix.service), value: snapshot.salesMix.service, max: snapshot.income.currentMonthSales, tone: 'muted' }],
+    lines: snapshot.topCustomers.slice(0, 4).map((customer) => ({ left: customer.name, right: thb(customer.amount) }))
+  },
+  {
+    title: 'งานที่ต้องตาม', sub: 'จาก PEAK Smart Insight และหน้าเอกสาร',
+    lines: [
+    { left: 'ใบเสนอราคารอลูกค้าตอบ', sub: `${snapshot.insights.quotationAwaitingCount} ฉบับ`, right: thb(snapshot.insights.quotationAwaitingAmount), tone: 'warn' },
+    { left: 'ลูกหนี้เกินกำหนด', sub: `${snapshot.income.overdueCount} รายการ`, right: thb(snapshot.income.overdue), tone: 'bad' },
+    { left: 'ค่าใช้จ่ายและซื้อเกินกำหนด', sub: `${snapshot.expense.overdueActionCount} งาน`, right: thb(snapshot.expense.overdueActionAmount), tone: 'warn' },
+    { left: 'ใบเสนอราคาหมดอายุ', sub: `${snapshot.income.expiredQuotationCount} ฉบับ`, right: thb(snapshot.income.expiredQuotation), tone: 'warn' }]
   },
   {
     title: 'ภาษีค้างจ่าย', sub: 'ยอดบัญชีใน PEAK',
@@ -56,29 +104,6 @@ function peakDashboardPanels(snapshot: PeakSnapshot): PanelSpec[] {
     { left: 'ภ.ง.ด.1', right: thb(snapshot.taxes.pnd1) },
     { left: 'ภ.ง.ด.3', right: thb(snapshot.taxes.pnd3) },
     { left: 'ภ.ง.ด.53', right: thb(snapshot.taxes.pnd53) }]
-  },
-  {
-    title: 'ยอดขายเดือนนี้', sub: `อัปเดต ${asOf} · ${snapshot.income.currentMonthSalesChangePct.toFixed(2)}% จากเดือนก่อน`, wide: true,
-    bars: [
-    { label: 'สินค้า', note: thb(snapshot.salesMix.product), value: snapshot.salesMix.product, max: snapshot.income.currentMonthSales, tone: 'info' },
-    { label: 'บริการ', note: thb(snapshot.salesMix.service), value: snapshot.salesMix.service, max: snapshot.income.currentMonthSales, tone: 'muted' }],
-    lines: snapshot.topCustomers.slice(0, 4).map((customer) => ({ left: customer.name, right: thb(customer.amount) }))
-  },
-  {
-    title: 'ยอดเกินกำหนด', sub: 'แยกตามชุดเอกสาร',
-    lines: [
-    { left: 'ลูกหนี้', sub: `${snapshot.income.overdueCount} รายการ`, right: thb(snapshot.income.overdue), tone: 'bad' },
-    { left: 'เอกสารค่าใช้จ่าย', sub: `${snapshot.expense.overdueCount} รายการ`, right: thb(snapshot.expense.overdue), tone: 'bad' },
-    { left: 'งานค่าใช้จ่ายและซื้อ', sub: `${snapshot.expense.overdueActionCount} งานที่ PEAK แจ้งเตือน`, right: thb(snapshot.expense.overdueActionAmount), tone: 'warn' }],
-    note: 'สองยอดรายจ่ายใช้ขอบเขตเอกสารต่างกัน จึงไม่ควรรวมกัน'
-  },
-  {
-    title: 'เอกสารเดือนนี้', full: true,
-    lines: [
-    { left: 'ยอดขายตามเอกสาร', right: thb(snapshot.income.currentMonthSales) },
-    { left: 'ค่าใช้จ่ายที่บันทึก', sub: `${snapshot.expense.currentMonthCount} รายการ`, right: thb(snapshot.expense.currentMonthRecorded) },
-    { left: 'ใบเสนอราคาหมดอายุ', sub: `${snapshot.income.expiredQuotationCount} ฉบับ`, right: thb(snapshot.income.expiredQuotation), tone: 'warn' }],
-    note: 'ยอดขายและค่าใช้จ่ายมาจากคนละชุดเอกสาร จึงไม่ใช่กำไรประจำเดือน'
   }];
 }
 
@@ -152,11 +177,11 @@ const CORE: Mod[] = [
     if (d.peakSnapshot) {
       const snapshot = d.peakSnapshot;
       return [
-      { label: 'รายได้ปี 2569', sub: 'PEAK', value: thb(snapshot.ytd.revenue, true) },
-      { label: 'ค่าใช้จ่ายปี 2569', sub: 'PEAK', value: thb(snapshot.ytd.expenses, true) },
       { label: 'กำไรปี 2569', sub: 'PEAK', value: `${snapshot.ytd.profit >= 0 ? '+' : ''}${thb(snapshot.ytd.profit, true)}`, tone: snapshot.ytd.profit >= 0 ? 'ok' : 'bad' },
+      { label: 'รายได้ปี 2569', sub: 'PEAK', value: thb(snapshot.ytd.revenue, true) },
       { label: 'ลูกหนี้เกินกำหนด', sub: `${snapshot.income.overdueCount} รายการ`, value: thb(snapshot.income.overdue, true), tone: snapshot.income.overdue ? 'bad' : 'ok' },
-      { label: 'ภาษีค้างจ่าย', value: thb(peakTaxTotal(snapshot), true), tone: peakTaxTotal(snapshot) ? 'warn' : 'ok' }];
+      { label: 'สภาพคล่อง', sub: 'Current ratio', value: `${snapshot.financialPosition.currentRatio.toFixed(1)}x`, tone: snapshot.financialPosition.currentRatio < 1.2 ? 'warn' : 'ok' },
+      { label: 'ต้องตรวจสอบ', sub: 'ยอดไม่ตรงกัน', value: `${snapshot.qualityFindings.length} จุด`, tone: snapshot.qualityFindings.length ? 'bad' : 'ok' }];
     }
     const latest = series(d).slice(-1)[0];
     const latestOpen = latest ? latest.month > d.settings.closedThrough.slice(0, 7) : false;

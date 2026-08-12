@@ -45,7 +45,7 @@ export interface Activity {id: string;at: string;actor: string;text: string;modu
 
 /** A private, browser-local executive snapshot imported from PEAK. */
 export interface PeakSnapshot {
-  schemaVersion: 1;
+  schemaVersion: 2;
   source: 'PEAK';
   companyName: string;
   asOf: string;
@@ -65,6 +65,23 @@ export interface PeakSnapshot {
   taxes: {pp30: number;pnd1: number;pnd3: number;pnd53: number;};
   salesMix: {product: number;service: number;};
   topCustomers: Array<{name: string;amount: number;}>;
+  monthlyPL: Array<{month: string;revenue: number;expenses: number;profit: number;partial?: boolean;}>;
+  financialPosition: {
+    totalAssets: number;currentAssets: number;nonCurrentAssets: number;
+    totalLiabilities: number;currentLiabilities: number;equity: number;
+    currentRatio: number;debtToEquity: number;debtRatioPct: number;
+    cashAndEquivalents: number;shortTermLoans: number;inventory: number;otherCurrentAssets: number;
+  };
+  cashChannels: {
+    total: number;cash: number;bank: number;eWallet: number;reconciliationRequired: boolean;
+  };
+  insights: {
+    quotationAwaitingAmount: number;quotationAwaitingCount: number;
+    invoiceAlertAmount: number;invoiceAlertCount: number;
+  };
+  qualityFindings: Array<{
+    key: string;severity: 'warn' | 'bad';title: string;detail: string;
+  }>;
   notes?: string[];
 }
 
@@ -87,11 +104,12 @@ const near = (left: number, right: number) => Math.abs(left - right) <= 0.02;
 export function isPeakSnapshot(value: unknown): value is PeakSnapshot {
   if (!value || typeof value !== 'object') return false;
   const snapshot = value as Partial<PeakSnapshot>;
-  if (snapshot.schemaVersion !== 1 || snapshot.source !== 'PEAK' || snapshot.currency !== 'THB') return false;
+  if (snapshot.schemaVersion !== 2 || snapshot.source !== 'PEAK' || snapshot.currency !== 'THB') return false;
   if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim() || snapshot.companyName.length > 120) return false;
   if (typeof snapshot.asOf !== 'string' || !Number.isFinite(Date.parse(snapshot.asOf))) return false;
   if (typeof snapshot.capturedAt !== 'string' || !Number.isFinite(Date.parse(snapshot.capturedAt))) return false;
-  if (!snapshot.ytd || !snapshot.income || !snapshot.expense || !snapshot.taxes || !snapshot.salesMix) return false;
+  if (!snapshot.ytd || !snapshot.income || !snapshot.expense || !snapshot.taxes || !snapshot.salesMix ||
+    !snapshot.financialPosition || !snapshot.cashChannels || !snapshot.insights) return false;
   const nonNegativeMeasures = [
     snapshot.ytd.revenue, snapshot.ytd.expenses,
     snapshot.income.issued, snapshot.income.paid, snapshot.income.overdue,
@@ -112,6 +130,35 @@ export function isPeakSnapshot(value: unknown): value is PeakSnapshot {
     Boolean(customer && typeof customer.name === 'string' && customer.name.trim() && customer.name.length <= 160 && nonNegative(customer.amount))
   )) return false;
   if (!near(snapshot.topCustomers.reduce((sum, customer) => sum + customer.amount, 0), snapshot.income.currentMonthSales)) return false;
+  if (!Array.isArray(snapshot.monthlyPL) || snapshot.monthlyPL.length < 2 || snapshot.monthlyPL.length > 12) return false;
+  if (!snapshot.monthlyPL.every((month) => Boolean(month && /^\d{4}-\d{2}$/.test(month.month) &&
+    nonNegative(month.revenue) && nonNegative(month.expenses) && finite(month.profit) &&
+    near(month.revenue - month.expenses, month.profit) &&
+    (month.partial === undefined || typeof month.partial === 'boolean')))) return false;
+  if (new Set(snapshot.monthlyPL.map((month) => month.month)).size !== snapshot.monthlyPL.length) return false;
+  const positionNonNegative = [
+    snapshot.financialPosition.totalAssets, snapshot.financialPosition.currentAssets,
+    snapshot.financialPosition.nonCurrentAssets, snapshot.financialPosition.totalLiabilities,
+    snapshot.financialPosition.currentLiabilities, snapshot.financialPosition.equity,
+    snapshot.financialPosition.currentRatio, snapshot.financialPosition.debtToEquity,
+    snapshot.financialPosition.debtRatioPct, snapshot.financialPosition.shortTermLoans,
+    snapshot.financialPosition.inventory, snapshot.financialPosition.otherCurrentAssets
+  ];
+  if (!positionNonNegative.every(nonNegative) || !finite(snapshot.financialPosition.cashAndEquivalents)) return false;
+  if (!near(snapshot.financialPosition.currentAssets + snapshot.financialPosition.nonCurrentAssets, snapshot.financialPosition.totalAssets)) return false;
+  if (!near(snapshot.financialPosition.totalLiabilities + snapshot.financialPosition.equity, snapshot.financialPosition.totalAssets)) return false;
+  const channelMeasures = [snapshot.cashChannels.total, snapshot.cashChannels.cash, snapshot.cashChannels.bank, snapshot.cashChannels.eWallet];
+  if (!channelMeasures.every(finite) || typeof snapshot.cashChannels.reconciliationRequired !== 'boolean') return false;
+  if (!near(snapshot.cashChannels.cash + snapshot.cashChannels.bank + snapshot.cashChannels.eWallet, snapshot.cashChannels.total)) return false;
+  const insightMeasures = [snapshot.insights.quotationAwaitingAmount, snapshot.insights.invoiceAlertAmount];
+  const insightCounts = [snapshot.insights.quotationAwaitingCount, snapshot.insights.invoiceAlertCount];
+  if (!insightMeasures.every(nonNegative) || !insightCounts.every(wholeNonNegative)) return false;
+  if (!Array.isArray(snapshot.qualityFindings) || snapshot.qualityFindings.length > 8 || !snapshot.qualityFindings.every((finding) =>
+    Boolean(finding && typeof finding.key === 'string' && finding.key.length <= 60 &&
+      (finding.severity === 'warn' || finding.severity === 'bad') &&
+      typeof finding.title === 'string' && finding.title.trim() && finding.title.length <= 120 &&
+      typeof finding.detail === 'string' && finding.detail.trim() && finding.detail.length <= 500)
+  )) return false;
   return snapshot.notes === undefined || (Array.isArray(snapshot.notes) && snapshot.notes.length <= 12 && snapshot.notes.every((note) => typeof note === 'string' && note.length <= 500));
 }
 

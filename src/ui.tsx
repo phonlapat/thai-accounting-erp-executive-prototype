@@ -414,7 +414,7 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
 
       <dl className="grid grid-cols-2 gap-4 border-t border-slate-200 px-4 py-3 min-[720px]:px-5">
         <div>
-          <dt className="text-[10.5px] text-slate-500">รวม 5 เดือน</dt>
+          <dt className="text-[10.5px] text-slate-500">รวม {data.points.length} เดือน</dt>
           <dd className={cx('text-[13px] font-semibold tabular-nums', data.totalPositive ? 'text-blue-700' : 'text-amber-700')}>{data.totalPositive ? 'กำไร' : 'ขาดทุน'} {data.total}</dd>
         </div>
         <div className="text-right">
@@ -431,9 +431,9 @@ function PanelLineItem({ line, className }: {line: PanelLine;className?: string;
     <li className={cx('grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex sm:flex-wrap sm:gap-2 sm:py-2', className)}>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-[13px] leading-5 text-slate-900 sm:truncate sm:text-[12.5px] sm:leading-normal">{line.left}</p>
-        {line.sub ? <p className={cx('line-clamp-2 text-[11.5px] leading-4 sm:truncate sm:text-[11px]', line.tone === 'bad' ? 'text-rose-600' : 'text-slate-500')}>{line.sub}</p> : null}
+        {line.sub ? <p className={cx('line-clamp-2 text-[11.5px] leading-4 sm:text-[11px]', line.tone === 'bad' ? 'text-rose-600' : line.tone === 'warn' ? 'text-amber-700' : 'text-slate-500')}>{line.sub}</p> : null}
       </div>
-      {line.right ? <span className="whitespace-nowrap text-[12.5px] font-medium tabular-nums text-slate-900">{line.right}</span> : null}
+      {line.right ? <span className={cx('whitespace-nowrap text-[12.5px] font-medium tabular-nums', line.tone === 'bad' ? 'text-rose-700' : line.tone === 'warn' ? 'text-amber-700' : 'text-slate-900')}>{line.right}</span> : null}
       {line.status ? <Badge value={line.status} /> : null}
       {line.actions?.length ? <div className="col-span-2 flex justify-end gap-2 sm:contents">
         {line.actions.map((action) => <GuardedAction key={action.label} action={action} className="w-fit flex-none" />)}
