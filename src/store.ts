@@ -224,7 +224,12 @@ function load(): AppData {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as unknown;
-      if (isAppData(parsed)) return parsed;
+      if (isAppData(parsed)) {
+        if (parsed.peakSnapshot && !isPeakSnapshot(parsed.peakSnapshot)) {
+          return { ...parsed, peakSnapshot: undefined };
+        }
+        return parsed;
+      }
     }
   } catch {
 
