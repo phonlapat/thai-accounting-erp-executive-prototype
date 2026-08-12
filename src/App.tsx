@@ -855,6 +855,216 @@ const FINANCE: Mod[] = [
 }];
 
 
+const peakOf = (data: AppData) => data.peakSnapshot as PeakSnapshot;
+const peakStamp = (iso: string) => `${dateTH(iso.slice(0, 10))} · ${iso.slice(11, 16)}`;
+const PEAK_RECORD_COLS: Col[] = [
+  { key: 'documentNo', header: 'เลขที่', fmt: 'mono' },
+  { key: 'party', header: 'คู่ค้า' },
+  { key: 'issueDate', header: 'วันที่เอกสาร', fmt: 'date', hide: 'md' },
+  { key: 'amount', header: 'ยอด', fmt: 'money', right: true },
+  { key: 'activity', header: 'อัปเดตล่าสุด', hide: 'lg' },
+  { key: 'updated', header: 'เวลา', hide: 'lg' },
+  { key: 'status', header: 'สถานะ', fmt: 'status' }
+];
+
+const PEAK_MODULES: Mod[] = [
+  {
+    ...CORE[0],
+    desc: 'ผลประกอบการ ฐานะการเงิน และงานที่ต้องตามจาก PEAK'
+  },
+  {
+    id: 'peak-income', th: 'รายได้', en: 'Revenue', group: 'ข้อมูล PEAK', icon: FileTextIcon,
+    desc: 'ยอดตามเอกสารขาย ลูกหนี้ และรายการอัปเดตล่าสุดจาก PEAK',
+    kpis: (d) => {
+      const s = peakOf(d);
+      return [
+        { label: 'ออกเอกสารปีนี้', value: thb(s.income.issued, true) },
+        { label: 'รับชำระแล้ว', value: thb(s.income.paid, true), tone: 'ok' },
+        { label: 'เกินกำหนด', sub: `${s.income.overdueCount} รายการ`, value: thb(s.income.overdue, true), tone: s.income.overdue ? 'bad' : 'ok' },
+        { label: 'ขายเดือนนี้', sub: `${s.income.currentMonthSalesChangePct.toFixed(1)}% จากเดือนก่อน`, value: thb(s.income.currentMonthSales, true), tone: s.income.currentMonthSalesChangePct < 0 ? 'warn' : 'ok' }
+      ];
+    },
+    panels: (d) => {
+      const s = peakOf(d);
+      return [
+        {
+          title: 'ยอดขายเดือนนี้', sub: 'แยกสินค้าและบริการ', wide: true,
+          bars: [
+            { label: 'สินค้า', note: thb(s.salesMix.product), value: s.salesMix.product, max: s.income.currentMonthSales, tone: 'info' },
+            { label: 'บริการ', note: thb(s.salesMix.service), value: s.salesMix.service, max: s.income.currentMonthSales, tone: 'muted' }
+          ],
+          lines: s.topCustomers.map((customer) => ({ left: customer.name, right: thb(customer.amount) }))
+        },
+        {
+          title: 'ต้องติดตาม', sub: 'ตัวเลขจาก PEAK Smart Insight',
+          lines: [
+            { left: 'ใบเสนอราคารอลูกค้าตอบ', sub: `${s.insights.quotationAwaitingCount} ฉบับ`, right: thb(s.insights.quotationAwaitingAmount), tone: 'warn' },
+            { left: 'ลูกหนี้เกินกำหนด', sub: `${s.income.overdueCount} รายการ`, right: thb(s.income.overdue), tone: 'bad' },
+            { left: 'ใบเสนอราคาหมดอายุ', sub: `${s.income.expiredQuotationCount} ฉบับ`, right: thb(s.income.expiredQuotation), tone: 'warn' }
+          ],
+          note: 'ยอดตามเอกสารขายต่างจากรายได้ทางบัญชีในงบกำไรขาดทุน'
+        }
+      ];
+    },
+    title: 'ประวัติรายการรายได้ล่าสุดจาก PEAK',
+    cols: PEAK_RECORD_COLS,
+    rows: (d) => peakOf(d).recentIncomeRows.map((row) => ({ ...row, updated: peakStamp(row.activityAt) })),
+    filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(peakOf(d).recentIncomeRows.map((row) => row.status)) }]
+  },
+  {
+    id: 'peak-expenses', th: 'ค่าใช้จ่าย', en: 'Expenses', group: 'ข้อมูล PEAK', icon: ReceiptIcon,
+    desc: 'ยอดค่าใช้จ่าย ภาษี และรายการอัปเดตล่าสุดจาก PEAK',
+    kpis: (d) => {
+      const s = peakOf(d);
+      return [
+        { label: 'บันทึกปีนี้', value: thb(s.expense.recorded, true) },
+        { label: 'จ่ายแล้ว', value: thb(s.expense.paid, true), tone: 'ok' },
+        { label: 'เกินกำหนด', sub: `${s.expense.overdueCount} เอกสาร`, value: thb(s.expense.overdue, true), tone: s.expense.overdue ? 'bad' : 'ok' },
+        { label: 'เดือนนี้', sub: `${s.expense.currentMonthCount} เอกสาร`, value: thb(s.expense.currentMonthRecorded, true) }
+      ];
+    },
+    panels: (d) => {
+      const s = peakOf(d);
+      const maxTax = Math.max(1, s.taxes.pp30, s.taxes.pnd1, s.taxes.pnd3, s.taxes.pnd53);
+      return [
+        {
+          title: 'ภาษีค้างจ่าย', sub: 'ยอดบัญชีใน PEAK', wide: true,
+          bars: [
+            { label: 'ภ.พ.30', note: thb(s.taxes.pp30), value: s.taxes.pp30, max: maxTax, tone: 'info' },
+            { label: 'ภ.ง.ด.1', note: thb(s.taxes.pnd1), value: s.taxes.pnd1, max: maxTax, tone: 'muted' },
+            { label: 'ภ.ง.ด.3', note: thb(s.taxes.pnd3), value: s.taxes.pnd3, max: maxTax, tone: 'warn' },
+            { label: 'ภ.ง.ด.53', note: thb(s.taxes.pnd53), value: s.taxes.pnd53, max: maxTax, tone: 'warn' }
+          ]
+        },
+        {
+          title: 'ขอบเขตต่างกัน', sub: 'PEAK แสดงสองจำนวน',
+          lines: [
+            { left: 'หน้าเอกสารค่าใช้จ่าย', sub: `${s.expense.overdueCount} รายการ`, right: thb(s.expense.overdue), tone: 'bad' },
+            { left: 'Smart Insight รวมงานจัดซื้อ', sub: `${s.expense.overdueActionCount} งาน`, right: thb(s.expense.overdueActionAmount), tone: 'warn' }
+          ],
+          note: 'ยังไม่รวมเป็นยอดเดียวจนกว่าจะยืนยันขอบเขตของ PEAK'
+        }
+      ];
+    },
+    title: 'ประวัติรายการค่าใช้จ่ายล่าสุดจาก PEAK',
+    cols: PEAK_RECORD_COLS,
+    rows: (d) => peakOf(d).recentExpenseRows.map((row) => ({ ...row, updated: peakStamp(row.activityAt) })),
+    filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(peakOf(d).recentExpenseRows.map((row) => row.status)) }]
+  },
+  {
+    id: 'peak-finance', th: 'เงินสดและธนาคาร', en: 'Cash & bank', group: 'ข้อมูล PEAK', icon: WalletIcon,
+    desc: 'ยอดตามบัญชี PEAK เพื่อกระทบยอด ไม่ใช่ยอดเงินพร้อมใช้',
+    kpis: (d) => {
+      const s = peakOf(d);
+      return [
+        { label: 'รวมตามช่องทาง', sub: 'ต้องกระทบยอด', value: thb(s.cashChannels.total, true), tone: 'bad' },
+        { label: 'เงินสด', value: thb(s.cashChannels.cash, true), tone: s.cashChannels.cash < 0 ? 'bad' : 'ok' },
+        { label: 'ธนาคาร', value: thb(s.cashChannels.bank, true), tone: s.cashChannels.bank < 0 ? 'bad' : 'ok' },
+        { label: 'e-Wallet', value: thb(s.cashChannels.eWallet, true), tone: s.cashChannels.eWallet < 0 ? 'warn' : 'ok' }
+      ];
+    },
+    panels: (d) => {
+      const s = peakOf(d);
+      const cashFinding = s.qualityFindings.find((finding) => finding.key === 'cash-totals');
+      return [
+        {
+          title: 'ห้ามใช้เป็นเงินพร้อมจ่าย', sub: 'ยอด PEAK สามหน้าไม่ตรงกัน', full: true,
+          lines: [
+            { left: 'หน้าช่องทางการเงิน', right: thb(s.cashChannels.total), tone: 'bad' },
+            { left: 'งบแสดงฐานะการเงิน', right: thb(s.financialPosition.cashAndEquivalents), tone: 'bad' },
+            { left: 'รายละเอียดความต่าง', sub: cashFinding?.detail ?? 'ไม่พบรายละเอียดการกระทบยอด', right: 'ต้องตรวจสอบ', tone: 'bad' }
+          ],
+          note: 'ต้องกระทบยอดบัญชีธนาคารและตรวจช่วงวันที่ใน PEAK ก่อนตัดสินใจจ่ายเงิน'
+        }
+      ];
+    },
+    title: 'บัญชีการเงินจาก PEAK',
+    cols: [
+      { key: 'name', header: 'บัญชี' },
+      { key: 'typeLabel', header: 'ประเภท' },
+      { key: 'balance', header: 'ยอดตามบัญชี', fmt: 'money', right: true, total: true }
+    ],
+    rows: (d) => peakOf(d).financeAccounts.map((account) => ({
+      id: account.id, name: account.name,
+      typeLabel: account.type === 'cash' ? 'เงินสด' : account.type === 'bank' ? 'ธนาคาร' : 'e-Wallet',
+      balance: account.balance
+    }))
+  },
+  {
+    id: 'peak-statements', th: 'งบการเงิน', en: 'Financial statements', group: 'ข้อมูล PEAK', icon: BarChart3Icon,
+    desc: 'งบกำไรขาดทุนและฐานะการเงินจาก PEAK',
+    kpis: (d) => {
+      const s = peakOf(d);
+      return [
+        { label: 'สินทรัพย์', value: thb(s.financialPosition.totalAssets, true) },
+        { label: 'หนี้สิน', value: thb(s.financialPosition.totalLiabilities, true), tone: 'warn' },
+        { label: 'ส่วนของผู้ถือหุ้น', value: thb(s.financialPosition.equity, true), tone: 'ok' },
+        { label: 'สภาพคล่อง', sub: 'Current ratio', value: `${s.financialPosition.currentRatio.toFixed(1)} เท่า`, tone: s.financialPosition.currentRatio < 1.2 ? 'warn' : 'ok' }
+      ];
+    },
+    panels: (d) => {
+      const s = peakOf(d);
+      const performance = peakDashboardPanels(s)[0];
+      return [
+        { ...performance, dashboardArea: undefined, wide: true },
+        {
+          title: 'โครงสร้างฐานะการเงิน', sub: `ณ ${dateTH(s.asOf.slice(0, 10))}`,
+          rows: [
+            ['สินทรัพย์หมุนเวียน', thb(s.financialPosition.currentAssets)],
+            ['สินทรัพย์ไม่หมุนเวียน', thb(s.financialPosition.nonCurrentAssets)],
+            ['สินค้าคงเหลือ', thb(s.financialPosition.inventory)],
+            ['เงินกู้ระยะสั้น', thb(s.financialPosition.shortTermLoans)],
+            ['หนี้สินต่อทุน', `${s.financialPosition.debtToEquity.toFixed(1)} เท่า`, true]
+          ]
+        }
+      ];
+    },
+    title: 'งบกำไรขาดทุนรายเดือน',
+    cols: [
+      { key: 'monthLabel', header: 'เดือน' },
+      { key: 'revenue', header: 'รายได้', fmt: 'money', right: true, total: true },
+      { key: 'expenses', header: 'ค่าใช้จ่าย', fmt: 'money', right: true, total: true },
+      { key: 'profit', header: 'กำไรสุทธิ', fmt: 'money', right: true, total: true },
+      { key: 'status', header: 'งวด', fmt: 'status' }
+    ],
+    rows: (d) => peakOf(d).monthlyPL.map((row) => ({
+      id: row.month, monthLabel: monthTH(row.month), revenue: row.revenue, expenses: row.expenses, profit: row.profit,
+      status: row.partial ? 'open' : 'posted'
+    }))
+  },
+  {
+    id: 'peak-quality', th: 'ตรวจสอบข้อมูล', en: 'Data checks', group: 'ข้อมูล PEAK', icon: AlertCircleIcon,
+    desc: 'แหล่งข้อมูล ความสด และตัวเลขที่ต้องกระทบยอดก่อนใช้ตัดสินใจ',
+    kpis: (d) => {
+      const s = peakOf(d);
+      const high = s.qualityFindings.filter((finding) => finding.severity === 'bad').length;
+      return [
+        { label: 'ต้องตรวจสอบ', value: `${s.qualityFindings.length} จุด`, tone: s.qualityFindings.length ? 'bad' : 'ok' },
+        { label: 'ความเสี่ยงสูง', value: `${high} จุด`, tone: high ? 'bad' : 'ok' },
+        { label: 'แหล่งข้อมูล', value: `${s.sources.length} หน้า` },
+        { label: 'รายการจริง', sub: 'รายได้ + ค่าใช้จ่าย', value: `${s.recentIncomeRows.length + s.recentExpenseRows.length} แถว` }
+      ];
+    },
+    panels: (d) => {
+      const s = peakOf(d);
+      return [
+        {
+          title: 'จุดที่ต้องกระทบยอด', sub: 'ยังไม่สรุปค่าที่ขัดกันเป็นยอดเดียว', full: true,
+          lines: s.qualityFindings.map((finding) => ({ left: finding.title, sub: finding.detail, right: finding.severity === 'bad' ? 'ความเสี่ยงสูง' : 'ควรตรวจ', tone: finding.severity }))
+        },
+        {
+          title: 'แหล่งข้อมูล', sub: 'เวลาอัปเดตของแต่ละหน้า', wide: true,
+          lines: s.sources.map((source) => ({ left: source.label, sub: source.scope, right: peakStamp(source.asOf) }))
+        },
+        {
+          title: 'ขอบเขต', sub: 'วิธีอ่านชุดข้อมูลนี้',
+          lines: (s.notes ?? []).map((note) => ({ left: note }))
+        }
+      ];
+    }
+  }
+];
+
 const MODULES: Mod[] = [...CORE, ...MASTER, ...FINANCE];
 const GROUPS = [
   { label: 'หน้าหลัก', ids: ['dashboard', 'approvals', 'audit'] },
@@ -862,15 +1072,16 @@ const GROUPS = [
   { label: 'งานประจำ', ids: ['contacts', 'products', 'inventory', 'banking', 'payroll'] },
   { label: 'บัญชีและรายงาน', ids: ['accounting', 'tax', 'assets', 'projects', 'reports'] }
 ];
+const PEAK_GROUPS = [{ label: 'ข้อมูลจริงจาก PEAK', ids: PEAK_MODULES.map((module) => module.id) }];
 
-function Nav({ active, collapsed, onPick }: {active: string;collapsed: boolean;onPick: (id: string) => void;}) {
+function Nav({ active, collapsed, onPick, modules, groups }: {active: string;collapsed: boolean;onPick: (id: string) => void;modules: Mod[];groups: Array<{label: string;ids: string[];}>;}) {
   return (
     <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label="เมนูโมดูล">
-      {GROUPS.map((g) =>
+      {groups.map((g) =>
       <div key={g.label} className="mb-4">
           {!collapsed ? <p className="px-2 pb-1.5 text-[11px] font-medium text-slate-500">{g.label}</p> : null}
           <ul className="space-y-0.5">
-            {g.ids.map((id) => MODULES.find((m) => m.id === id)).filter((m): m is Mod => Boolean(m)).map((m) => {
+            {g.ids.map((id) => modules.find((m) => m.id === id)).filter((m): m is Mod => Boolean(m)).map((m) => {
             const Icon = m.icon;
             const on = m.id === active;
             return (
@@ -904,9 +1115,9 @@ interface DemoSession { email: string; }
 
 const COLLAPSED_KEY = 'thai-erp-sidebar-collapsed';
 
-function moduleFromLocation() {
+function moduleFromLocation(modules: Mod[]) {
   const id = window.location.hash.replace(/^#\/?/, '').split('?')[0];
-  return MODULES.some((item) => item.id === id) ? id : 'dashboard';
+  return modules.some((item) => item.id === id) ? id : 'dashboard';
 }
 
 function queryFromLocation() {
@@ -925,7 +1136,10 @@ function readCollapsed() {
 function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () => void;}) {
   const actor = session.email === 'demo@sample.local' ? 'ผู้ใช้เดโม' : session.email;
   const { data, actions, toasts, storageIssue } = useStore(actor);
-  const [active, setActive] = useState(moduleFromLocation);
+  const peakMode = Boolean(data.peakSnapshot);
+  const availableModules = peakMode ? PEAK_MODULES : MODULES;
+  const availableGroups = peakMode ? PEAK_GROUPS : GROUPS;
+  const [active, setActive] = useState(() => moduleFromLocation(availableModules));
   const [tableQuery, setTableQuery] = useState(queryFromLocation);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [open, setOpen] = useState(false);
@@ -937,11 +1151,11 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
   const drawerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const pageTitleRef = useRef<HTMLHeadingElement>(null);
-  const m = useMemo(() => MODULES.find((x) => x.id === active) ?? MODULES[0], [active]);
+  const m = useMemo(() => availableModules.find((x) => x.id === active) ?? availableModules[0], [active, availableModules]);
   const pending = pendingList(data).length;
 
   const go = (id: string, query = '') => {
-    if (!MODULES.some((item) => item.id === id)) return;
+    if (!availableModules.some((item) => item.id === id)) return;
     const nextHash = `#${id}${query ? `?q=${encodeURIComponent(query)}` : ''}`;
     if (window.location.hash !== nextHash) window.history.pushState(null, '', nextHash);
     setActive(id);
@@ -954,7 +1168,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
   useEffect(() => {
     const onHistory = () => {
-      setActive(moduleFromLocation());
+      setActive(moduleFromLocation(peakMode ? PEAK_MODULES : MODULES));
       setTableQuery(queryFromLocation());
     };
     window.addEventListener('popstate', onHistory);
@@ -963,7 +1177,15 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
       window.removeEventListener('popstate', onHistory);
       window.removeEventListener('hashchange', onHistory);
     };
-  }, []);
+  }, [peakMode]);
+
+  useEffect(() => {
+    if (availableModules.some((item) => item.id === active)) return;
+    window.history.replaceState(null, '', '#dashboard');
+    setActive('dashboard');
+    setTableQuery('');
+    setOpen(false);
+  }, [active, availableModules]);
 
   useEffect(() => {
     document.title = `${m.th} | Siam ERP`;
@@ -1027,7 +1249,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
       <button type="button" tabIndex={open ? -1 : undefined} aria-hidden={open || undefined} onClick={() => document.getElementById('main-content')?.focus()} className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg focus:translate-y-0">ข้ามไปเนื้อหา</button>
       <aside className={cx('sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-800 bg-slate-950 lg:flex', collapsed ? 'w-[72px]' : 'w-[260px]')}>
         {brand(collapsed)}
-        <Nav active={active} collapsed={collapsed} onPick={go} />
+        <Nav active={active} collapsed={collapsed} onPick={go} modules={availableModules} groups={availableGroups} />
         <div className="border-t border-slate-800 p-2">
           <button
             type="button"
@@ -1059,7 +1281,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
                   <XIcon className="h-4 w-4" />
                 </button>
               </div>
-              <Nav active={active} collapsed={false} onPick={go} />
+              <Nav active={active} collapsed={false} onPick={go} modules={availableModules} groups={availableGroups} />
             </aside>
           </div> :
         null}
@@ -1079,27 +1301,27 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
             <Button
               size="sm" icon={UploadIcon} onClick={() => setPeakImportOpen(true)}
               ariaLabel={data.peakSnapshot ? 'เปลี่ยนไฟล์ข้อมูล PEAK' : 'นำเข้าข้อมูล PEAK'}
-              title={data.peakSnapshot ? 'เปลี่ยนข้อมูล PEAK' : 'นำเข้าข้อมูล PEAK'}
+              title={data.peakSnapshot ? 'อัปเดตข้อมูล PEAK' : 'นำเข้าข้อมูล PEAK'}
               className="min-w-11 px-2 sm:min-w-0 sm:px-2.5">
-              <span className="hidden sm:inline">{data.peakSnapshot ? 'เปลี่ยน PEAK' : 'นำเข้า PEAK'}</span>
+              <span className="hidden sm:inline">{data.peakSnapshot ? 'อัปเดต PEAK' : 'นำเข้า PEAK'}</span>
             </Button>
-            <button
+            {!peakMode ? <><button
               type="button" onClick={() => go('approvals')}
               aria-label={`งานรออนุมัติ ${pending} รายการ`}
               className={cx('inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 sm:min-h-9', pending ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700')}>
 
               <ClipboardCheckIcon className="h-4 w-4" /><span className="hidden sm:inline">อนุมัติ</span><span className="tabular-nums">{pending}</span>
             </button>
-            <Button size="sm" icon={RotateCcwIcon} onClick={() => setConfirmReset(true)} className="hidden sm:inline-flex">รีเซ็ต</Button>
-            <Button size="sm" icon={LogOutIcon} onClick={onSignOut} className="min-w-11 px-2 sm:min-w-0 sm:px-2.5" ariaLabel={`ออกจากระบบ ${session.email}`} title={session.email}><span className="hidden sm:inline">ออก</span></Button>
+            <Button size="sm" icon={RotateCcwIcon} onClick={() => setConfirmReset(true)} className="hidden sm:inline-flex">รีเซ็ต</Button></> : null}
+            <Button size="sm" icon={LogOutIcon} onClick={onSignOut} className="min-w-11 px-2 sm:min-w-0 sm:px-2.5" ariaLabel="ออกจากระบบ" title={peakMode ? 'ออกจากระบบ' : session.email}><span className="hidden sm:inline">ออก</span></Button>
           </div>
         </header>
 
         {data.peakSnapshot ?
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-[11.5px] text-emerald-900 lg:px-6" role="status">
           <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" />
-          <span className="min-w-0 flex-1"><strong>ภาพรวมใช้ข้อมูลจริงจาก PEAK</strong> · โมดูลรายละเอียดด้านล่างยังเป็นข้อมูลสาธิต</span>
-          <button type="button" onClick={actions.clearPeakSnapshot} className="font-semibold text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950">กลับข้อมูลสาธิต</button>
+          <span className="min-w-0 flex-1"><strong>ข้อมูลจริงจาก PEAK</strong> · อ่านอย่างเดียว · เก็บเฉพาะเบราว์เซอร์นี้</span>
+          <button type="button" onClick={actions.clearPeakSnapshot} className="font-semibold text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">กลับโหมดทดลอง</button>
         </div> : null}
 
         {storageIssue ?
@@ -1131,8 +1353,8 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
         <footer className="border-t border-slate-200 px-4 py-3 text-[11px] text-slate-500 lg:px-6">
           <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-1.5">
-            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : data.peakSnapshot ? 'ภาพรวม PEAK · เก็บเฉพาะเบราว์เซอร์นี้' : 'ข้อมูลสาธิต · บันทึกอัตโนมัติในเบราว์เซอร์นี้'}</span>
-            <span>{data.peakSnapshot ? `อัปเดต ${dateTH(data.peakSnapshot.asOf.slice(0, 10))}` : `ข้อมูล ณ ${dateTH(TODAY)} · ปิดงวดถึง ${dateTH(data.settings.closedThrough)}`}</span>
+            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : data.peakSnapshot ? 'PEAK snapshot · อ่านอย่างเดียว · ไม่ส่งขึ้น GitHub' : 'ข้อมูลสาธิต · บันทึกอัตโนมัติในเบราว์เซอร์นี้'}</span>
+            <span>{data.peakSnapshot ? `ตรวจจาก PEAK ${peakStamp(data.peakSnapshot.capturedAt)}` : `ข้อมูล ณ ${dateTH(TODAY)} · ปิดงวดถึง ${dateTH(data.settings.closedThrough)}`}</span>
           </div>
         </footer>
       </div>

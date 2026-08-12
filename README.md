@@ -8,7 +8,9 @@ An interactive Thai-language executive workbench for exploring accounting and ER
 
 The default records are fictional demonstration data. Choose **ทดลองใช้ทันที** on the sign-in screen to enter. Changes are stored only in the current browser; use **รีเซ็ต** to restore the original sample.
 
-The executive page can also load a validated PEAK snapshot from **นำเข้า PEAK**. The private snapshot can include monthly P&L, financial position, sales, taxes, outstanding work, and explicit reconciliation warnings. It is read-only and browser-local; the detailed modules remain demo data. Never commit PEAK snapshots or real financial exports to this public repository.
+The workbench can also load a validated PEAK snapshot from **นำเข้า PEAK**. PEAK mode is a separate read-only workspace with Overview, Revenue, Expenses, Cash & Bank, Financial Statements, and Data Checks. Demo modules and write actions are hidden while real data is active. The snapshot stays in the current browser and is never included in this public repository.
+
+PEAK mode is source-aware: it records when each PEAK page was inspected, keeps repeated document numbers when they represent different status-history rows, and shows unresolved reconciliation differences without collapsing them into a false single total. It is still a manually captured snapshot, not a live PEAK API connection.
 
 > Prototype notice: this project is intended for interface and workflow exploration. It is not production accounting software and should not be used for tax filing, payroll calculation, or financial reporting.
 

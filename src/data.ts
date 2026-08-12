@@ -44,8 +44,19 @@ export interface Approval {id: string;kind: 'bill' | 'expense' | 'payroll' | 'jo
 export interface Activity {id: string;at: string;actor: string;text: string;module: string;}
 
 /** A private, browser-local executive snapshot imported from PEAK. */
+export type PeakRecordStatus = 'paid' | 'voided' | 'outstanding' | 'overdue' | 'await_receipt';
+export interface PeakRecordRow {
+  id: string;documentNo: string;party: string;issueDate: string;amount: number;
+  status: PeakRecordStatus;activity: string;activityAt: string;
+}
+export interface PeakFinanceAccount {
+  id: string;type: 'cash' | 'bank' | 'ewallet';name: string;balance: number;
+}
+export interface PeakSourceFreshness {
+  key: string;label: string;asOf: string;scope: string;
+}
 export interface PeakSnapshot {
-  schemaVersion: 2;
+  schemaVersion: 3;
   source: 'PEAK';
   companyName: string;
   asOf: string;
@@ -75,6 +86,10 @@ export interface PeakSnapshot {
   cashChannels: {
     total: number;cash: number;bank: number;eWallet: number;reconciliationRequired: boolean;
   };
+  financeAccounts: PeakFinanceAccount[];
+  recentIncomeRows: PeakRecordRow[];
+  recentExpenseRows: PeakRecordRow[];
+  sources: PeakSourceFreshness[];
   insights: {
     quotationAwaitingAmount: number;quotationAwaitingCount: number;
     invoiceAlertAmount: number;invoiceAlertCount: number;
@@ -104,7 +119,7 @@ const near = (left: number, right: number) => Math.abs(left - right) <= 0.02;
 export function isPeakSnapshot(value: unknown): value is PeakSnapshot {
   if (!value || typeof value !== 'object') return false;
   const snapshot = value as Partial<PeakSnapshot>;
-  if (snapshot.schemaVersion !== 2 || snapshot.source !== 'PEAK' || snapshot.currency !== 'THB') return false;
+  if (snapshot.schemaVersion !== 3 || snapshot.source !== 'PEAK' || snapshot.currency !== 'THB') return false;
   if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim() || snapshot.companyName.length > 120) return false;
   if (typeof snapshot.asOf !== 'string' || !Number.isFinite(Date.parse(snapshot.asOf))) return false;
   if (typeof snapshot.capturedAt !== 'string' || !Number.isFinite(Date.parse(snapshot.capturedAt))) return false;
@@ -150,6 +165,28 @@ export function isPeakSnapshot(value: unknown): value is PeakSnapshot {
   const channelMeasures = [snapshot.cashChannels.total, snapshot.cashChannels.cash, snapshot.cashChannels.bank, snapshot.cashChannels.eWallet];
   if (!channelMeasures.every(finite) || typeof snapshot.cashChannels.reconciliationRequired !== 'boolean') return false;
   if (!near(snapshot.cashChannels.cash + snapshot.cashChannels.bank + snapshot.cashChannels.eWallet, snapshot.cashChannels.total)) return false;
+  if (!Array.isArray(snapshot.financeAccounts) || snapshot.financeAccounts.length < 3 || snapshot.financeAccounts.length > 20) return false;
+  const financeAccounts = snapshot.financeAccounts;
+  if (!financeAccounts.every((account) => Boolean(account && typeof account.id === 'string' && account.id.length <= 60 &&
+    (account.type === 'cash' || account.type === 'bank' || account.type === 'ewallet') &&
+    typeof account.name === 'string' && account.name.trim() && account.name.length <= 120 && finite(account.balance)))) return false;
+  if (new Set(financeAccounts.map((account) => account.id)).size !== financeAccounts.length) return false;
+  if (!near(financeAccounts.reduce((sum, account) => sum + account.balance, 0), snapshot.cashChannels.total)) return false;
+  const accountTypeTotal = (type: PeakFinanceAccount['type']) => financeAccounts.filter((account) => account.type === type).reduce((sum, account) => sum + account.balance, 0);
+  if (!near(accountTypeTotal('cash'), snapshot.cashChannels.cash) || !near(accountTypeTotal('bank'), snapshot.cashChannels.bank) || !near(accountTypeTotal('ewallet'), snapshot.cashChannels.eWallet)) return false;
+  const validRecordRows = (rows: PeakRecordRow[] | undefined) => Array.isArray(rows) && rows.length <= 50 && rows.every((row) => Boolean(
+    row && typeof row.id === 'string' && row.id.length <= 100 && typeof row.documentNo === 'string' && row.documentNo.trim() && row.documentNo.length <= 80 &&
+    typeof row.party === 'string' && row.party.trim() && row.party.length <= 200 && /^\d{4}-\d{2}-\d{2}$/.test(row.issueDate) &&
+    nonNegative(row.amount) && ['paid', 'voided', 'outstanding', 'overdue', 'await_receipt'].includes(row.status) &&
+    typeof row.activity === 'string' && row.activity.trim() && row.activity.length <= 120 &&
+    typeof row.activityAt === 'string' && Number.isFinite(Date.parse(row.activityAt))
+  )) && new Set(rows.map((row) => row.id)).size === rows.length;
+  if (!validRecordRows(snapshot.recentIncomeRows) || !validRecordRows(snapshot.recentExpenseRows)) return false;
+  if (!Array.isArray(snapshot.sources) || snapshot.sources.length < 3 || snapshot.sources.length > 12 || !snapshot.sources.every((source) => Boolean(
+    source && typeof source.key === 'string' && source.key.length <= 60 && typeof source.label === 'string' && source.label.trim() && source.label.length <= 120 &&
+    typeof source.asOf === 'string' && Number.isFinite(Date.parse(source.asOf)) && typeof source.scope === 'string' && source.scope.trim() && source.scope.length <= 240
+  ))) return false;
+  if (new Set(snapshot.sources.map((source) => source.key)).size !== snapshot.sources.length) return false;
   const insightMeasures = [snapshot.insights.quotationAwaitingAmount, snapshot.insights.invoiceAlertAmount];
   const insightCounts = [snapshot.insights.quotationAwaitingCount, snapshot.insights.invoiceAlertCount];
   if (!insightMeasures.every(nonNegative) || !insightCounts.every(wholeNonNegative)) return false;
@@ -208,6 +245,9 @@ export const STATUS: Record<string, {th: string;en: string;tone: Tone;}> = {
   partial: { th: 'ชำระบางส่วน', en: 'Partial', tone: 'warn' },
   paid: { th: 'ชำระแล้ว', en: 'Paid', tone: 'ok' },
   overdue: { th: 'เกินกำหนด', en: 'Overdue', tone: 'bad' },
+  voided: { th: 'ยกเลิกแล้ว', en: 'Voided', tone: 'muted' },
+  outstanding: { th: 'คงค้าง', en: 'Outstanding', tone: 'warn' },
+  await_receipt: { th: 'รอใบเสร็จ', en: 'Await receipt', tone: 'warn' },
   received: { th: 'รับของแล้ว', en: 'Received', tone: 'ok' },
   converted: { th: 'แปลงเอกสารแล้ว', en: 'Converted', tone: 'info' },
   posted: { th: 'ผ่านรายการ', en: 'Posted', tone: 'ok' },
