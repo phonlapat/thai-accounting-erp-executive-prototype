@@ -2,19 +2,19 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircleIcon, BarChart3Icon, BookOpenIcon, Building2Icon, BoxesIcon, CheckCircle2Icon, ChevronsLeftIcon,
   ChevronsRightIcon, ClipboardCheckIcon, EyeIcon, EyeOffIcon, FileTextIcon, HistoryIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
-  LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShieldCheckIcon, ShoppingCartIcon, UsersIcon, WalletIcon, XIcon } from
+  LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShieldCheckIcon, ShoppingCartIcon, UploadIcon, UsersIcon, WalletIcon, XIcon } from
 'lucide-react';
 import {
   MONTH, STATUS, TODAY, WH, baseOf, dateTH, docStatus, dueOf, monthTH, netOf, num, payTotals, thb, vatOf, whtOf } from
 './data';
-import type { AppData, Tone } from './data';
+import type { AppData, PeakSnapshot, Tone } from './data';
 import {
   acctName, aging, ap, apList, ar, arList, bankSuggestion, bookValue, cash, cashForecast30, cashOf, contactName, depMonthly, depPerMonth, draftJournals,
   empName, invValue, ledger, lowStock, overdueList, pendingList, pl, projName, projectPL, series, stockOf, trialBalance,
   unmatchedList, useStore, vatReport, whtRows } from
 './store';
 import type { Actions } from './store';
-import { Button, Card, CardHead, ConfirmDialog, DataTable, KpiStrip, Panels, cx } from './ui';
+import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
 
 interface Kpi {label: string;sub?: string;value: string;tone?: Tone;hint?: string;}
@@ -35,6 +35,52 @@ const APPROVAL_TH: Record<AppData['approvals'][number]['kind'], string> = { bill
 const opts = (vals: string[]) => Array.from(new Set(vals)).map((v) => ({ value: v, label: STATUS[v]?.th ?? v }));
 const N = (v: string | number | undefined) => Number(v ?? 0);
 const daysBetween = (from: string, to: string) => Math.floor((Date.parse(to) - Date.parse(from)) / 864e5);
+
+const peakTaxTotal = (snapshot: PeakSnapshot) =>
+snapshot.taxes.pp30 + snapshot.taxes.pnd1 + snapshot.taxes.pnd3 + snapshot.taxes.pnd53;
+
+function peakDashboardPanels(snapshot: PeakSnapshot): PanelSpec[] {
+  const asOf = dateTH(snapshot.asOf.slice(0, 10));
+  return [
+  {
+    title: 'ผลประกอบการปี 2569', sub: `งบกำไรขาดทุน · PEAK ณ ${asOf}`, wide: true,
+    rows: [
+    ['รายได้', thb(snapshot.ytd.revenue)],
+    ['ค่าใช้จ่าย', thb(snapshot.ytd.expenses)],
+    ['กำไรสุทธิ', thb(snapshot.ytd.profit), true]]
+  },
+  {
+    title: 'ภาษีค้างจ่าย', sub: 'ยอดบัญชีใน PEAK',
+    lines: [
+    { left: 'ภ.พ.30', right: thb(snapshot.taxes.pp30) },
+    { left: 'ภ.ง.ด.1', right: thb(snapshot.taxes.pnd1) },
+    { left: 'ภ.ง.ด.3', right: thb(snapshot.taxes.pnd3) },
+    { left: 'ภ.ง.ด.53', right: thb(snapshot.taxes.pnd53) }]
+  },
+  {
+    title: 'ยอดขายเดือนนี้', sub: `อัปเดต ${asOf} · ${snapshot.income.currentMonthSalesChangePct.toFixed(2)}% จากเดือนก่อน`, wide: true,
+    bars: [
+    { label: 'สินค้า', note: thb(snapshot.salesMix.product), value: snapshot.salesMix.product, max: snapshot.income.currentMonthSales, tone: 'info' },
+    { label: 'บริการ', note: thb(snapshot.salesMix.service), value: snapshot.salesMix.service, max: snapshot.income.currentMonthSales, tone: 'muted' }],
+    lines: snapshot.topCustomers.slice(0, 4).map((customer) => ({ left: customer.name, right: thb(customer.amount) }))
+  },
+  {
+    title: 'ยอดเกินกำหนด', sub: 'แยกตามชุดเอกสาร',
+    lines: [
+    { left: 'ลูกหนี้', sub: `${snapshot.income.overdueCount} รายการ`, right: thb(snapshot.income.overdue), tone: 'bad' },
+    { left: 'เอกสารค่าใช้จ่าย', sub: `${snapshot.expense.overdueCount} รายการ`, right: thb(snapshot.expense.overdue), tone: 'bad' },
+    { left: 'งานค่าใช้จ่ายและซื้อ', sub: `${snapshot.expense.overdueActionCount} งานที่ PEAK แจ้งเตือน`, right: thb(snapshot.expense.overdueActionAmount), tone: 'warn' }],
+    note: 'สองยอดรายจ่ายใช้ขอบเขตเอกสารต่างกัน จึงไม่ควรรวมกัน'
+  },
+  {
+    title: 'เอกสารเดือนนี้', full: true,
+    lines: [
+    { left: 'ยอดขายตามเอกสาร', right: thb(snapshot.income.currentMonthSales) },
+    { left: 'ค่าใช้จ่ายที่บันทึก', sub: `${snapshot.expense.currentMonthCount} รายการ`, right: thb(snapshot.expense.currentMonthRecorded) },
+    { left: 'ใบเสนอราคาหมดอายุ', sub: `${snapshot.income.expiredQuotationCount} ฉบับ`, right: thb(snapshot.income.expiredQuotation), tone: 'warn' }],
+    note: 'ยอดขายและค่าใช้จ่ายมาจากคนละชุดเอกสาร จึงไม่ใช่กำไรประจำเดือน'
+  }];
+}
 
 interface DashboardAlert {
   left: string;sub: string;right: string;tone: Tone;priority: number;
@@ -103,6 +149,15 @@ const CORE: Mod[] = [
   id: 'dashboard', th: 'ภาพรวมผู้บริหาร', en: 'Dashboard', group: 'ภาพรวม', icon: LayoutDashboardIcon,
   desc: 'ฐานะการเงิน งานค้าง และความเคลื่อนไหวขององค์กรในหน้าเดียว',
   kpis: (d) => {
+    if (d.peakSnapshot) {
+      const snapshot = d.peakSnapshot;
+      return [
+      { label: 'รายได้ปี 2569', sub: 'PEAK', value: thb(snapshot.ytd.revenue, true) },
+      { label: 'ค่าใช้จ่ายปี 2569', sub: 'PEAK', value: thb(snapshot.ytd.expenses, true) },
+      { label: 'กำไรปี 2569', sub: 'PEAK', value: `${snapshot.ytd.profit >= 0 ? '+' : ''}${thb(snapshot.ytd.profit, true)}`, tone: snapshot.ytd.profit >= 0 ? 'ok' : 'bad' },
+      { label: 'ลูกหนี้เกินกำหนด', sub: `${snapshot.income.overdueCount} รายการ`, value: thb(snapshot.income.overdue, true), tone: snapshot.income.overdue ? 'bad' : 'ok' },
+      { label: 'ภาษีค้างจ่าย', value: thb(peakTaxTotal(snapshot), true), tone: peakTaxTotal(snapshot) ? 'warn' : 'ok' }];
+    }
     const latest = series(d).slice(-1)[0];
     const latestOpen = latest ? latest.month > d.settings.closedThrough.slice(0, 7) : false;
     const urgent = dashboardAlerts(d).length;
@@ -115,6 +170,7 @@ const CORE: Mod[] = [
   },
 
   panels: (d, a, navigate) => {
+    if (d.peakSnapshot) return peakDashboardPanels(d.peakSnapshot);
     const history = series(d);
     const profit = history.slice(-5);
     const latestProfit = profit[profit.length - 1];
@@ -849,6 +905,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [open, setOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [peakImportOpen, setPeakImportOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const restoreMenuFocusRef = useRef(false);
   const closeMenuRef = useRef<HTMLButtonElement>(null);
@@ -934,7 +991,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
       {!compact ?
     <div className="min-w-0">
           <p className="truncate text-[13px] font-semibold text-white">Siam ERP</p>
-          <p className="truncate text-[10.5px] text-slate-400">{data.company.nameTh.replace(' (ข้อมูลสาธิต)', '')}</p>
+          <p className="truncate text-[10.5px] text-slate-400">{(data.peakSnapshot?.companyName ?? data.company.nameTh).replace(' (ข้อมูลสาธิต)', '')}</p>
         </div> :
     null}
     </div>;
@@ -990,10 +1047,17 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
           <div className="min-w-0 flex-1">
             <h1 ref={pageTitleRef} tabIndex={-1} className="truncate text-[16px] font-semibold tracking-[-0.02em] text-slate-950 outline-none lg:text-[18px]">{m.th}</h1>
             <p className={cx('max-w-[72ch] truncate text-[10.5px] text-slate-500', m.id === 'dashboard' ? 'block' : 'hidden xl:block')}>
-              {m.id === 'dashboard' ? `ข้อมูล ${dateTH(TODAY)} · ปิดงวด ${dateTH(data.settings.closedThrough)}` : m.desc}
+              {m.id === 'dashboard' ? data.peakSnapshot ? `ข้อมูลจริงจาก PEAK · ${dateTH(data.peakSnapshot.asOf.slice(0, 10))}` : `ข้อมูล ${dateTH(TODAY)} · ปิดงวด ${dateTH(data.settings.closedThrough)}` : m.desc}
             </p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Button
+              size="sm" icon={UploadIcon} onClick={() => setPeakImportOpen(true)}
+              ariaLabel={data.peakSnapshot ? 'เปลี่ยนไฟล์ข้อมูล PEAK' : 'นำเข้าข้อมูล PEAK'}
+              title={data.peakSnapshot ? 'เปลี่ยนข้อมูล PEAK' : 'นำเข้าข้อมูล PEAK'}
+              className="min-w-11 px-2 sm:min-w-0 sm:px-2.5">
+              <span className="hidden sm:inline">{data.peakSnapshot ? 'เปลี่ยน PEAK' : 'นำเข้า PEAK'}</span>
+            </Button>
             <button
               type="button" onClick={() => go('approvals')}
               aria-label={`งานรออนุมัติ ${pending} รายการ`}
@@ -1005,6 +1069,13 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
             <Button size="sm" icon={LogOutIcon} onClick={onSignOut} className="min-w-11 px-2 sm:min-w-0 sm:px-2.5" ariaLabel={`ออกจากระบบ ${session.email}`} title={session.email}><span className="hidden sm:inline">ออก</span></Button>
           </div>
         </header>
+
+        {data.peakSnapshot ?
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-[11.5px] text-emerald-900 lg:px-6" role="status">
+          <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" />
+          <span className="min-w-0 flex-1"><strong>ภาพรวมใช้ข้อมูลจริงจาก PEAK</strong> · โมดูลรายละเอียดด้านล่างยังเป็นข้อมูลสาธิต</span>
+          <button type="button" onClick={actions.clearPeakSnapshot} className="font-semibold text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950">กลับข้อมูลสาธิต</button>
+        </div> : null}
 
         {storageIssue ?
         <div className="flex items-center gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-[12px] text-rose-800 lg:px-6" role="alert">
@@ -1035,8 +1106,8 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
         <footer className="border-t border-slate-200 px-4 py-3 text-[11px] text-slate-500 lg:px-6">
           <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-1.5">
-            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : 'ข้อมูลสาธิต · บันทึกอัตโนมัติในเบราว์เซอร์นี้'}</span>
-            <span>ข้อมูล ณ {dateTH(TODAY)} · ปิดงวดถึง {dateTH(data.settings.closedThrough)}</span>
+            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : data.peakSnapshot ? 'ภาพรวม PEAK · เก็บเฉพาะเบราว์เซอร์นี้' : 'ข้อมูลสาธิต · บันทึกอัตโนมัติในเบราว์เซอร์นี้'}</span>
+            <span>{data.peakSnapshot ? `อัปเดต ${dateTH(data.peakSnapshot.asOf.slice(0, 10))}` : `ข้อมูล ณ ${dateTH(TODAY)} · ปิดงวดถึง ${dateTH(data.settings.closedThrough)}`}</span>
           </div>
         </footer>
       </div>
@@ -1062,6 +1133,14 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
         confirmLabel="คืนค่าเริ่มต้น"
         onConfirm={resetDemo}
         onClose={() => setConfirmReset(false)} />
+      <JsonImportDialog
+        open={peakImportOpen}
+        onImport={(value) => {
+          const imported = actions.importPeakSnapshot(value);
+          if (imported) go('dashboard');
+          return imported;
+        }}
+        onClose={() => setPeakImportOpen(false)} />
     </div>);
 
 }

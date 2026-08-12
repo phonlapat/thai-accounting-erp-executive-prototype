@@ -1,7 +1,7 @@
 /* Workbench UI primitives: badges, cards, KPI strip, config-driven table and panels */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangleIcon, ArrowUpDownIcon, ChevronLeftIcon, ChevronRightIcon, SearchIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, ArrowUpDownIcon, ChevronLeftIcon, ChevronRightIcon, SearchIcon, UploadIcon, XIcon } from 'lucide-react';
 import { STATUS, dateTH, num, thb } from './data';
 import type { Tone } from './data';
 
@@ -198,6 +198,99 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button buttonRef={cancelRef} className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
           <Button className="w-full sm:w-auto" variant={tone === 'danger' ? 'dangerSolid' : 'primary'} disabled={committing} onClick={commit}>{confirmLabel}</Button>
+        </div>
+      </div>
+    </div>, document.body
+  );
+}
+
+export function JsonImportDialog({ open, onImport, onClose }: {
+  open: boolean;onImport: (value: unknown) => boolean;onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const onCloseRef = useRef(onClose);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState('');
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!open) {
+      setDraft('');
+      setError('');
+      return;
+    }
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    const appRoot = document.getElementById('root');
+    const previousRootHidden = appRoot?.getAttribute('aria-hidden') ?? null;
+    const previousRootInert = appRoot?.inert ?? false;
+    document.body.style.overflow = 'hidden';
+    textareaRef.current?.focus();
+    if (appRoot) {
+      appRoot.inert = true;
+      appRoot.setAttribute('aria-hidden', 'true');
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCloseRef.current();
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (appRoot) {
+        appRoot.inert = previousRootInert;
+        if (previousRootHidden === null) appRoot.removeAttribute('aria-hidden');
+        else appRoot.setAttribute('aria-hidden', previousRootHidden);
+      }
+      window.removeEventListener('keydown', onKey);
+      window.requestAnimationFrame(() => previouslyFocused?.focus());
+    };
+  }, [open]);
+
+  if (!open) return null;
+  const commit = () => {
+    if (draft.length > 1_000_000) {
+      setError('ข้อมูลใหญ่เกิน 1 MB');
+      return;
+    }
+    try {
+      const parsed = JSON.parse(draft) as unknown;
+      if (!onImport(parsed)) {
+        setError('รูปแบบข้อมูลไม่ถูกต้อง');
+        return;
+      }
+      onClose();
+    } catch {
+      setError('JSON อ่านไม่ได้ กรุณาตรวจสอบแล้วลองอีกครั้ง');
+    }
+  };
+  return createPortal(
+    <div className="erp-fade-in fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="json-import-title" aria-describedby="json-import-description" className="erp-dialog-in w-full max-w-xl rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] sm:p-6">
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
+          <div className="min-w-0 flex-1">
+            <h2 id="json-import-title" className="text-[17px] font-semibold tracking-[-0.02em] text-slate-950">นำเข้าข้อมูล PEAK</h2>
+            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">วางข้อมูล JSON ที่ตรวจสอบแล้ว ข้อมูลจะอยู่เฉพาะในเบราว์เซอร์นี้</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"><XIcon className="h-4 w-4" /></button>
+        </div>
+        <label htmlFor="peak-json" className="mt-5 block text-[12px] font-medium text-slate-700">ข้อมูล JSON</label>
+        <textarea
+          ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setError(''); }}
+          spellCheck={false} rows={10} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error' : undefined}
+          className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[12px] leading-5 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+        {error ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{error}</p> : null}
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
+          <Button className="w-full sm:w-auto" variant="primary" disabled={!draft.trim()} onClick={commit}>ใช้ข้อมูลนี้</Button>
         </div>
       </div>
     </div>, document.body

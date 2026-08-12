@@ -16,6 +16,8 @@ output
 vite.config.js
 vite.config.d.ts
 *.local
+private-data/
+peak-snapshot-*.json
 
 # Editor directories and files
 .vscode/*
