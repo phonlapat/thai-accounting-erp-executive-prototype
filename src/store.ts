@@ -582,7 +582,7 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
         }
         mut((d) => {
           notify(`ใช้ข้อมูล PEAK ของ ${value.companyName} แล้ว`);
-          return log({ ...d, peakSnapshot: value }, `นำเข้าภาพรวม PEAK ณ ${value.asOf}`, 'ข้อมูล');
+          return log({ ...d, peakSnapshot: value }, `นำเข้าข้อมูล PEAK ณ ${value.asOf}`, 'ข้อมูล');
         });
         return true;
       },
@@ -594,7 +594,7 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
           return d;
         }
         notify('กลับมาใช้ข้อมูลสาธิตแล้ว');
-        return log({ ...d, peakSnapshot: undefined }, 'หยุดใช้ภาพรวม PEAK', 'ข้อมูล');
+        return log({ ...d, peakSnapshot: undefined }, 'หยุดใช้ข้อมูล PEAK', 'ข้อมูล');
       }),
 
       reset: () => {
