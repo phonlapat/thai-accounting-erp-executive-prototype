@@ -5,13 +5,13 @@ import {
   LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShieldCheckIcon, ShoppingCartIcon, UploadIcon, UsersIcon, WalletIcon, XIcon } from
 'lucide-react';
 import {
-  MONTH, STATUS, TODAY, WH, baseOf, dateTH, docStatus, dueOf, monthTH, netOf, num, payTotals, thb, vatOf, whtOf } from
+  MONTH, STATUS, TODAY, WH, baseOf, dateTH, docStatus, dueOf, monthTH, netOf, num, payTotals, peakSnapshotFreshness, thb, vatOf, whtOf } from
 './data';
 import type { AppData, PeakSnapshot, Tone } from './data';
 import {
   acctName, aging, ap, apList, ar, arList, bankSuggestion, bookValue, cash, cashForecast30, cashOf, contactName, depMonthly, depPerMonth, draftJournals,
   empName, invValue, ledger, lowStock, overdueList, pendingList, pl, projName, projectPL, series, stockOf, trialBalance,
-  unmatchedList, useStore, vatReport, whtRows } from
+  DEMO_STORAGE_KEY, PEAK_SESSION_KEY, unmatchedList, useStore, vatReport, whtRows } from
 './store';
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
@@ -1135,8 +1135,9 @@ function readCollapsed() {
 
 function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () => void;}) {
   const actor = session.email === 'demo@sample.local' ? 'ผู้ใช้เดโม' : session.email;
-  const { data, actions, toasts, storageIssue } = useStore(actor);
+  const { data, actions, toasts, storageIssue, recoveredStorage } = useStore(actor);
   const peakMode = Boolean(data.peakSnapshot);
+  const peakFreshness = data.peakSnapshot ? peakSnapshotFreshness(data.peakSnapshot.capturedAt) : undefined;
   const availableModules = peakMode ? PEAK_MODULES : MODULES;
   const availableGroups = peakMode ? PEAK_GROUPS : GROUPS;
   const [active, setActive] = useState(() => moduleFromLocation(availableModules));
@@ -1144,6 +1145,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [open, setOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [peakImportOpen, setPeakImportOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const restoreMenuFocusRef = useRef(false);
@@ -1313,21 +1315,30 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
               <ClipboardCheckIcon className="h-4 w-4" /><span className="hidden sm:inline">อนุมัติ</span><span className="tabular-nums">{pending}</span>
             </button>
             <Button size="sm" icon={RotateCcwIcon} onClick={() => setConfirmReset(true)} className="hidden sm:inline-flex">รีเซ็ต</Button></> : null}
-            <Button size="sm" icon={LogOutIcon} onClick={onSignOut} className="min-w-11 px-2 sm:min-w-0 sm:px-2.5" ariaLabel="ออกจากระบบ" title={peakMode ? 'ออกจากระบบ' : session.email}><span className="hidden sm:inline">ออก</span></Button>
+            <Button size="sm" icon={LogOutIcon} onClick={() => peakMode ? setConfirmSignOut(true) : onSignOut()} className="min-w-11 px-2 sm:min-w-0 sm:px-2.5" ariaLabel={peakMode ? 'ออกและลบข้อมูล PEAK' : 'ออกจากระบบทดลอง'} title={peakMode ? 'ออกและลบข้อมูล PEAK' : session.email}><span className="hidden sm:inline">ออก</span></Button>
           </div>
         </header>
 
-        {data.peakSnapshot ?
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-[11.5px] text-emerald-900 lg:px-6" role="status">
-          <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" />
-          <span className="min-w-0 flex-1"><strong>ข้อมูลจริงจาก PEAK</strong> · อ่านอย่างเดียว · เก็บเฉพาะเบราว์เซอร์นี้</span>
-          <button type="button" onClick={actions.clearPeakSnapshot} className="font-semibold text-emerald-800 underline decoration-emerald-300 underline-offset-2 hover:text-emerald-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700">กลับโหมดทดลอง</button>
+        {data.peakSnapshot && peakFreshness ?
+        <div className={cx('flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-4 py-2 text-[11.5px] lg:px-6',
+          peakFreshness.status === 'fresh' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' :
+            peakFreshness.status === 'aging' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-rose-200 bg-rose-50 text-rose-900')}
+          role={peakFreshness.status === 'stale' ? 'alert' : 'status'}>
+          {peakFreshness.status === 'fresh' ? <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" /> : <AlertCircleIcon className="h-4 w-4 shrink-0" />}
+          <span className="min-w-0 flex-1"><strong>ข้อมูลจริงจาก PEAK</strong> · อ่านอย่างเดียว · {peakFreshness.label} · อยู่เฉพาะแท็บนี้</span>
+          <button type="button" onClick={actions.clearPeakSnapshot} className="inline-flex min-h-11 items-center px-1 font-semibold underline decoration-current/30 underline-offset-2 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">กลับโหมดทดลอง</button>
         </div> : null}
 
         {storageIssue ?
         <div className="flex items-center gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-[12px] text-rose-800 lg:px-6" role="alert">
           <AlertCircleIcon className="h-4 w-4 shrink-0" />
           <span><strong>บันทึกไม่ได้</strong> · การเปลี่ยนแปลงจะหายเมื่อปิดหน้านี้</span>
+        </div> : null}
+
+        {recoveredStorage ?
+        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-900 lg:px-6" role="status">
+          <AlertCircleIcon className="h-4 w-4 shrink-0" />
+          <span><strong>เริ่มข้อมูลใหม่แล้ว</strong> · ข้อมูลสาธิตเดิมอ่านไม่ได้</span>
         </div> : null}
 
         <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 py-4 outline-none lg:px-6 lg:py-5">
@@ -1353,7 +1364,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
         <footer className="border-t border-slate-200 px-4 py-3 text-[11px] text-slate-500 lg:px-6">
           <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-1.5">
-            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : data.peakSnapshot ? 'PEAK snapshot · อ่านอย่างเดียว · ไม่ส่งขึ้น GitHub' : 'ข้อมูลสาธิต · บันทึกอัตโนมัติในเบราว์เซอร์นี้'}</span>
+            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : data.peakSnapshot ? 'PEAK snapshot · อ่านอย่างเดียว · ลบเมื่อออกหรือปิดแท็บ' : 'ข้อมูลสาธิต · บันทึกอัตโนมัติในเบราว์เซอร์นี้'}</span>
             <span>{data.peakSnapshot ? `ตรวจจาก PEAK ${peakStamp(data.peakSnapshot.capturedAt)}` : `ข้อมูล ณ ${dateTH(TODAY)} · ปิดงวดถึง ${dateTH(data.settings.closedThrough)}`}</span>
           </div>
         </footer>
@@ -1380,6 +1391,13 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
         confirmLabel="คืนค่าเริ่มต้น"
         onConfirm={resetDemo}
         onClose={() => setConfirmReset(false)} />
+      <ConfirmDialog
+        open={confirmSignOut}
+        title="ออกและลบข้อมูล PEAK?"
+        description="snapshot จะถูกลบจากแท็บนี้ ข้อมูลสาธิตจะยังอยู่"
+        confirmLabel="ออกและลบ"
+        onConfirm={() => { actions.clearPeakSnapshot(); onSignOut(); }}
+        onClose={() => setConfirmSignOut(false)} />
       <JsonImportDialog
         open={peakImportOpen}
         onImport={(value) => {
@@ -1393,10 +1411,12 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 }
 
 const SESSION_KEY = 'thai-erp-demo-session';
+const DEMO_EMAIL = 'demo@sample.local';
+const DEMO_PASSWORD = 'demo1234';
 
 function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(DEMO_EMAIL);
+  const [password, setPassword] = useState(DEMO_PASSWORD);
   const [errors, setErrors] = useState<{email?: string;password?: string;}>({});
   const [showPassword, setShowPassword] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
@@ -1409,16 +1429,14 @@ function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const nextErrors: {email?: string;password?: string;} = {};
-    if (!email.trim()) nextErrors.email = 'กรุณากรอกอีเมล';
-    else if (!email.includes('@')) nextErrors.email = 'รูปแบบอีเมลไม่ถูกต้อง';
-    if (!password) nextErrors.password = 'กรุณากรอกรหัสผ่าน';
-    else if (password.length < 4) nextErrors.password = 'ต้องมีอย่างน้อย 4 ตัวอักษร';
+    if (email.trim() !== DEMO_EMAIL) nextErrors.email = 'ใช้บัญชีตัวอย่างที่แสดงเท่านั้น';
+    if (password !== DEMO_PASSWORD) nextErrors.password = 'รหัสผ่านตัวอย่างไม่ถูกต้อง';
     if (nextErrors.email || nextErrors.password) {
       setErrors(nextErrors);
       window.requestAnimationFrame(() => (nextErrors.email ? emailRef.current : passwordRef.current)?.focus());
       return;
     }
-    onEnter(email.trim());
+    onEnter(DEMO_EMAIL);
   };
 
   return (
@@ -1430,7 +1448,7 @@ function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
         </div>
         <div className="my-auto max-w-xl pb-16">
           <p className="text-balance text-[clamp(2rem,3.8vw,3.75rem)] font-semibold leading-[1.08] tracking-[-0.035em]">เห็นภาพการเงิน<br />ตัดสินใจได้ทันที</p>
-          <p className="mt-5 max-w-[52ch] text-[15px] leading-7 text-slate-300">ยอดขาย กระแสเงินสด ภาษี และงานอนุมัติ เชื่อมอยู่ในพื้นที่ทำงานเดียว</p>
+          <p className="mt-5 max-w-[48ch] text-[15px] leading-7 text-slate-300">ยอดขาย เงินสด ภาษี และงานอนุมัติในพื้นที่เดียว</p>
         </div>
         <div className="flex items-center gap-2 text-[12px] text-slate-400"><ShieldCheckIcon className="h-4 w-4 text-blue-400" />ข้อมูลบนหน้านี้เป็นข้อมูลสาธิต</div>
       </section>
@@ -1441,15 +1459,15 @@ function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-700 text-base font-bold text-white">ส</span>
             <div><p className="font-semibold text-slate-950">Siam ERP</p><p className="text-[12px] text-slate-500">ระบบสาธิต</p></div>
           </div>
-          <h1 id="sign-in-title" className="text-[28px] font-semibold tracking-[-0.03em] text-slate-950">เข้าสู่ระบบสาธิต</h1>
-          <p className="mt-1 text-[13px] text-slate-600">กรอกบัญชีทดลอง หรือเข้าใช้ทันที</p>
+          <h1 id="sign-in-title" className="text-[28px] font-semibold tracking-[-0.03em] text-slate-950">เปิดพื้นที่ทดลอง</h1>
+          <p className="mt-1 text-[13px] text-slate-600">บัญชีตัวอย่างเท่านั้น · ไม่ใช่การยืนยันตัวตนจริง</p>
 
           <form className="mt-7 space-y-5" onSubmit={submit} noValidate>
           <div>
             <label htmlFor="sign-in-email" className="mb-1.5 block text-[13px] font-medium text-slate-700">อีเมล</label>
             <input
-              ref={emailRef} id="sign-in-email" type="email" inputMode="email" autoComplete="email" value={email} required aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'sign-in-email-error' : undefined}
-              onChange={(event) => { setEmail(event.target.value); if (errors.email) setErrors((current) => ({ ...current, email: undefined })); }} placeholder="name@company.com"
+              ref={emailRef} id="sign-in-email" type="email" inputMode="email" autoComplete="off" value={email} maxLength={80} required aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'sign-in-email-error' : undefined}
+              onChange={(event) => { setEmail(event.target.value); if (errors.email) setErrors((current) => ({ ...current, email: undefined })); }}
               className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-base text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-blue-700 focus:ring-2 focus:ring-blue-100 sm:text-[14px]"
             />
             {errors.email ? <p id="sign-in-email-error" className="mt-1.5 flex items-center gap-1.5 text-[12px] text-rose-700"><AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />{errors.email}</p> : null}
@@ -1458,7 +1476,7 @@ function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
             <label htmlFor="sign-in-password" className="mb-1.5 block text-[13px] font-medium text-slate-700">รหัสผ่าน</label>
             <span className="relative block">
               <input
-                ref={passwordRef} id="sign-in-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} required aria-invalid={Boolean(errors.password)} aria-describedby={errors.password ? 'sign-in-password-error' : undefined}
+                ref={passwordRef} id="sign-in-password" type={showPassword ? 'text' : 'password'} autoComplete="off" value={password} maxLength={32} required aria-invalid={Boolean(errors.password)} aria-describedby={errors.password ? 'sign-in-password-error' : undefined}
                 onChange={(event) => { setPassword(event.target.value); if (errors.password) setErrors((current) => ({ ...current, password: undefined })); }}
                 className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 pr-12 text-base text-slate-950 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 sm:text-[14px]"
               />
@@ -1470,19 +1488,10 @@ function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
           </div>
           {(errors.email || errors.password) ? <p className="sr-only" role="alert">กรุณาตรวจสอบข้อมูลเข้าสู่ระบบ</p> : null}
           <button type="submit" className="flex h-12 w-full items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-            เข้าสู่ระบบ
+            เปิดพื้นที่ทดลอง
           </button>
         </form>
-        <div className="my-6 flex items-center gap-3 text-[11px] text-slate-400" aria-hidden="true">
-          <span className="h-px flex-1 bg-slate-200" />หรือ<span className="h-px flex-1 bg-slate-200" />
-        </div>
-        <button
-          type="button" onClick={() => onEnter('demo@sample.local')}
-          className="flex min-h-14 w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-left hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-          <span><span className="block text-sm font-semibold text-slate-900">ทดลองใช้ทันที</span><span className="block text-[11.5px] text-slate-500">ไม่ต้องกรอกข้อมูล</span></span>
-          <ChevronsRightIcon className="h-4 w-4 text-slate-500" />
-        </button>
-        <p className="mt-6 text-center text-[11px] leading-5 text-slate-500">ระบบสาธิต · ไม่ควรใช้กับข้อมูลจริง</p>
+        <p className="mt-5 text-center text-[11px] leading-5 text-slate-500">ข้อมูลตัวอย่างถูกกรอกไว้แล้ว · อย่าใช้รหัสผ่านจริง</p>
         </div>
       </section>
     </main>
@@ -1532,7 +1541,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode;}, ErrorB
         <p className="mt-2 text-sm leading-6 text-slate-600">ลองโหลดหน้าใหม่ หรือคืนค่าข้อมูลหากไฟล์ที่บันทึกในเบราว์เซอร์เสียหาย</p>
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <button type="button" onClick={() => window.location.reload()} className="h-11 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">โหลดใหม่</button>
-          <button type="button" onClick={() => { try { localStorage.removeItem('siam-erp-th-v1'); } catch { /* continue with reload */ } window.location.reload(); }} className="h-11 rounded-xl border border-rose-200 bg-white px-5 text-sm font-semibold text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2">คืนค่าข้อมูล</button>
+          <button type="button" onClick={() => { try { localStorage.removeItem(DEMO_STORAGE_KEY); sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* continue with reload */ } window.location.reload(); }} className="h-11 rounded-xl border border-rose-200 bg-white px-5 text-sm font-semibold text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2">คืนค่าข้อมูล</button>
         </div>
         <p className="mt-3 text-[11px] text-slate-500">การคืนค่าจะลบการเปลี่ยนแปลงสาธิตในเครื่องนี้</p>
       </section>

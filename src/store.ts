@@ -1,8 +1,8 @@
 /* Selectors, reports and the localStorage-backed store */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  MONTHS, TODAY, addDays, baseOf, dueOf, docStatus, isPeakSnapshot, monthTH, netOf, nextNo, payItems, payTotals,
-  seed, thb, uid, vatOf, whtOf } from
+  MONTHS, TODAY, addDays, baseOf, dueOf, docStatus, monthTH, netOf, nextNo, payItems, payTotals,
+  sanitizePeakSnapshot, seed, thb, uid, vatOf, whtOf } from
 './data';
 import type { AppData, Asset, BankTxn, Doc, Journal, JLine, Product } from './data';
 
@@ -204,49 +204,83 @@ export function ledger(d: AppData): Journal[] {
 
 export interface Toast {id: string;text: string;tone: 'ok' | 'bad';}
 
-const KEY = 'siam-erp-th-v1';
+export const DEMO_STORAGE_KEY = 'siam-erp-th-v1';
+export const PEAK_SESSION_KEY = 'siam-erp-peak-v3';
 
 const ARRAY_FIELDS: Array<keyof AppData> = [
   'products', 'contacts', 'docs', 'expenses', 'bankAccts', 'bankTxns', 'journals', 'accounts',
   'employees', 'payroll', 'assets', 'projects', 'approvals', 'activities'
 ];
 
-function isAppData(value: unknown): value is AppData {
+export function isAppData(value: unknown): value is AppData {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<AppData>;
   return ARRAY_FIELDS.every((key) => Array.isArray(candidate[key])) &&
-    Boolean(candidate.company && typeof candidate.company === 'object') &&
-    Boolean(candidate.settings && typeof candidate.settings === 'object');
+    Boolean(candidate.company && typeof candidate.company === 'object' && typeof candidate.company.nameTh === 'string') &&
+    Boolean(candidate.settings && typeof candidate.settings === 'object' &&
+      typeof candidate.settings.closedThrough === 'string' && Number.isFinite(Date.parse(candidate.settings.closedThrough)) &&
+      typeof candidate.settings.threshold === 'number' && Number.isFinite(candidate.settings.threshold));
 }
 
-function load(): AppData {
+export function demoDataForStorage(data: AppData): AppData {
+  return { ...data, peakSnapshot: undefined };
+}
+
+interface LoadResult {data: AppData;recoveredStorage: boolean;}
+
+function readSessionPeak(): AppData['peakSnapshot'] {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = sessionStorage.getItem(PEAK_SESSION_KEY);
+    const snapshot = raw ? sanitizePeakSnapshot(JSON.parse(raw) as unknown) : undefined;
+    if (!snapshot && raw) sessionStorage.removeItem(PEAK_SESSION_KEY);
+    return snapshot;
+  } catch {
+    try { sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* unavailable storage */ }
+    return undefined;
+  }
+}
+
+function load(): LoadResult {
+  let recoveredStorage = false;
+  try {
+    const raw = localStorage.getItem(DEMO_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as unknown;
       if (isAppData(parsed)) {
-        if (parsed.peakSnapshot && !isPeakSnapshot(parsed.peakSnapshot)) {
-          return { ...parsed, peakSnapshot: undefined };
+        const legacyPeak = sanitizePeakSnapshot(parsed.peakSnapshot);
+        const demoData = demoDataForStorage(parsed);
+        if (legacyPeak) {
+          try { sessionStorage.setItem(PEAK_SESSION_KEY, JSON.stringify(legacyPeak)); } catch { /* continue without private data */ }
+          try { localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(demoData)); } catch { /* cleaned on next successful save */ }
         }
-        return parsed;
+        const peakSnapshot = readSessionPeak() ?? legacyPeak;
+        return { data: peakSnapshot ? { ...demoData, peakSnapshot } : demoData, recoveredStorage };
       }
+      recoveredStorage = true;
     }
   } catch {
-
-    /* ignore corrupt storage */}
-  return seed();
+    recoveredStorage = true;
+  }
+  const base = seed();
+  const peakSnapshot = readSessionPeak();
+  return { data: peakSnapshot ? { ...base, peakSnapshot } : base, recoveredStorage };
 }
 
 export function useStore(actor = 'ผู้ใช้เดโม') {
-  const [data, setData] = useState<AppData>(load);
+  const initial = useRef<LoadResult | null>(null);
+  if (!initial.current) initial.current = load();
+  const [data, setData] = useState<AppData>(initial.current.data);
   const dataRef = useRef(data);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [storageIssue, setStorageIssue] = useState(false);
+  const [recoveredStorage] = useState(initial.current.recoveredStorage);
   const toastTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(KEY, JSON.stringify(data));
+      localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(demoDataForStorage(data)));
+      if (data.peakSnapshot) sessionStorage.setItem(PEAK_SESSION_KEY, JSON.stringify(data.peakSnapshot));
+      else sessionStorage.removeItem(PEAK_SESSION_KEY);
       setStorageIssue(false);
     } catch {
       setStorageIssue(true);
@@ -576,13 +610,14 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
       }),
 
       importPeakSnapshot: (value: unknown) => {
-        if (!isPeakSnapshot(value)) {
+        const snapshot = sanitizePeakSnapshot(value);
+        if (!snapshot) {
           notify('ไฟล์ PEAK ไม่ถูกต้องหรือเป็นคนละเวอร์ชัน', 'bad');
           return false;
         }
         mut((d) => {
-          notify(`ใช้ข้อมูล PEAK ของ ${value.companyName} แล้ว`);
-          return log({ ...d, peakSnapshot: value }, `นำเข้าข้อมูล PEAK ณ ${value.asOf}`, 'ข้อมูล');
+          notify(`ใช้ข้อมูล PEAK ของ ${snapshot.companyName} แล้ว`);
+          return log({ ...d, peakSnapshot: snapshot }, `นำเข้าข้อมูล PEAK ณ ${snapshot.asOf}`, 'ข้อมูล');
         });
         return true;
       },
@@ -593,13 +628,15 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
           notify('ขณะนี้ใช้ข้อมูลสาธิตอยู่', 'bad');
           return d;
         }
+        try { sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* unavailable storage */ }
         notify('กลับมาใช้ข้อมูลสาธิตแล้ว');
         return log({ ...d, peakSnapshot: undefined }, 'หยุดใช้ข้อมูล PEAK', 'ข้อมูล');
       }),
 
       reset: () => {
         try {
-          localStorage.removeItem(KEY);
+          localStorage.removeItem(DEMO_STORAGE_KEY);
+          sessionStorage.removeItem(PEAK_SESSION_KEY);
         } catch {
 
           /* ignore */}
@@ -611,7 +648,7 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
     };
   }, [actor, notify]);
 
-  return { data, actions, toasts, storageIssue };
+  return { data, actions, toasts, storageIssue, recoveredStorage };
 }
 
 export type Actions = ReturnType<typeof useStore>['actions'];

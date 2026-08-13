@@ -209,15 +209,18 @@ export function JsonImportDialog({ open, onImport, onClose }: {
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
+  const [fileName, setFileName] = useState('');
   onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) {
       setDraft('');
       setError('');
+      setFileName('');
       return;
     }
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -234,7 +237,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCloseRef.current();
       if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -255,6 +258,23 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   }, [open]);
 
   if (!open) return null;
+  const readFile = async (file?: File) => {
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      setError('ไฟล์ใหญ่เกิน 1 MB กรุณาใช้ snapshot ที่มีเฉพาะข้อมูลตามแบบ');
+      setFileName('');
+      return;
+    }
+    try {
+      const text = await file.text();
+      setDraft(text);
+      setFileName(file.name);
+      setError('');
+    } catch {
+      setError('อ่านไฟล์ไม่ได้ กรุณาเลือกไฟล์ JSON ใหม่');
+      setFileName('');
+    }
+  };
   const commit = () => {
     if (draft.length > 1_000_000) {
       setError('ข้อมูลใหญ่เกิน 1 MB');
@@ -278,15 +298,25 @@ export function JsonImportDialog({ open, onImport, onClose }: {
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
             <h2 id="json-import-title" className="text-[17px] font-semibold tracking-[-0.02em] text-slate-950">นำเข้าข้อมูล PEAK</h2>
-            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">วางข้อมูล JSON ที่ตรวจสอบแล้ว ข้อมูลจะอยู่เฉพาะในเบราว์เซอร์นี้</p>
+            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">ข้อมูลจะอยู่เฉพาะแท็บนี้ และถูกลบเมื่อออกจากระบบหรือปิดแท็บ</p>
           </div>
           <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"><XIcon className="h-4 w-4" /></button>
         </div>
-        <label htmlFor="peak-json" className="mt-5 block text-[12px] font-medium text-slate-700">ข้อมูล JSON</label>
+        <div className="mt-5 flex flex-wrap items-center gap-2">
+          <Button onClick={() => fileRef.current?.click()} icon={UploadIcon}>เลือกไฟล์ JSON</Button>
+          <span className="min-w-0 truncate text-[12px] text-slate-500">{fileName || 'ไม่เกิน 1 MB'}</span>
+          <input
+            ref={fileRef} type="file" accept="application/json,.json" className="sr-only"
+            aria-hidden="true" tabIndex={-1}
+            onChange={(event) => { void readFile(event.target.files?.[0]); event.currentTarget.value = ''; }} />
+        </div>
+        <div className="my-4 flex items-center gap-3 text-[11px] text-slate-400" aria-hidden="true"><span className="h-px flex-1 bg-slate-200" />หรือวาง JSON<span className="h-px flex-1 bg-slate-200" /></div>
+        <label htmlFor="peak-json" className="block text-[12px] font-medium text-slate-700">ข้อมูล JSON</label>
         <textarea
           ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setError(''); }}
-          spellCheck={false} rows={10} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error' : undefined}
+          spellCheck={false} rows={8} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error peak-json-help' : 'peak-json-help'}
           className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[12px] leading-5 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+        <p id="peak-json-help" className="mt-1.5 text-[11px] leading-4 text-slate-500">ระบบเก็บเฉพาะช่องข้อมูลที่ตรวจสอบแล้ว และไม่ส่งไฟล์ไปยังเซิร์ฟเวอร์</p>
         {error ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{error}</p> : null}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
