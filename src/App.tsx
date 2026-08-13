@@ -1255,16 +1255,20 @@ function Workbench() {
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.4)] sm:p-8">
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
             <h2 id="peak-gate-title" className="mt-5 text-[26px] font-semibold tracking-[-0.03em]">เปิดข้อมูล PEAK</h2>
-            <p className="mt-2 text-[13px] leading-6 text-slate-600">ใช้ไฟล์ JSON ส่วนตัวที่สร้างจากบัญชี PEAK ของคุณ ข้อมูลต้องผ่านการตรวจสอบก่อนจึงจะแสดงผล</p>
+            <p className="mt-2 text-[13px] leading-6 text-slate-600">ใช้ snapshot ส่วนตัวที่ตรวจจากบัญชี PEAK ของคุณ ข้อมูลต้องผ่านการตรวจสอบก่อนจึงจะแสดงผล</p>
             <ul className="mt-5 space-y-3 text-[13px] text-slate-700">
               <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>ไม่มีใบแจ้งหนี้หรือตัวเลขสาธิต</span></li>
               <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>อ่านอย่างเดียวและลบเมื่อปิดแท็บ</span></li>
               <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>แจ้งยอดที่ไม่ตรงกันแทนการเดาตัวเลข</span></li>
             </ul>
             <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-7 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-              <UploadIcon className="h-4 w-4" />เลือกข้อมูล PEAK
+              <UploadIcon className="h-4 w-4" />เลือก snapshot PEAK
             </button>
-            <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="mt-3 flex min-h-11 items-center justify-center text-[12px] font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK เพื่อเตรียมข้อมูล</a>
+            <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/70 p-4">
+              <p className="text-[12px] font-semibold text-blue-950">ไม่มี API?</p>
+              <p className="mt-1 text-[12px] leading-5 text-blue-900">เปิด PEAK แล้วกลับไปที่ Codex และพิมพ์ “logged in” เพื่อให้ Codex ตรวจและโหลดข้อมูลให้ด้วยตนเอง</p>
+              <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center text-[12px] font-semibold text-blue-800 underline decoration-blue-300 underline-offset-4 hover:text-blue-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK ในแท็บใหม่</a>
+            </div>
           </div>
         </section>
 

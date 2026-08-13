@@ -8,7 +8,7 @@ An interactive Thai-language executive workbench for exploring accounting and ER
 
 The public app is **PEAK-only**. It does not display fictional invoices, balances, or operational records. Until a validated private snapshot is supplied, the app shows a zero-data access gate.
 
-Choose **เลือกข้อมูล PEAK** and load a validated schema-v3 snapshot. The read-only workspace includes Overview, Revenue, Expenses, Cash & Bank, Financial Statements, and Data Checks. The validated snapshot is kept only in the current browser tab, removed on exit or tab close, and never included in this public repository. Unknown fields are stripped before the snapshot reaches application state.
+Choose **เลือก snapshot PEAK** and load a validated schema-v3 snapshot. If there is no API connection, open PEAK, sign in, and ask Codex to perform the manual inspection and browser-local import. The read-only workspace includes Overview, Revenue, Expenses, Cash & Bank, Financial Statements, and Data Checks. The validated snapshot is kept only in the current browser tab, removed on exit or tab close, and never included in this public repository. Unknown fields are stripped before the snapshot reaches application state.
 
 PEAK mode is source-aware: it records when each PEAK page was inspected, keeps repeated document numbers when they represent different status-history rows, and shows unresolved reconciliation differences without collapsing them into a false single total. It is still a manually captured snapshot, not a live PEAK API connection.
 
