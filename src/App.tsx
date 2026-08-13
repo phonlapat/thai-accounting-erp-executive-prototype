@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircleIcon, BarChart3Icon, BookOpenIcon, Building2Icon, BoxesIcon, CheckCircle2Icon, ChevronsLeftIcon,
-  ChevronsRightIcon, ClipboardCheckIcon, EyeIcon, EyeOffIcon, FileTextIcon, HistoryIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
-  LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, RotateCcwIcon, ShieldCheckIcon, ShoppingCartIcon, UploadIcon, UsersIcon, WalletIcon, XIcon } from
+  ChevronsRightIcon, ClipboardCheckIcon, FileTextIcon, HistoryIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
+  LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon, UploadIcon, UsersIcon, WalletIcon, XIcon } from
 'lucide-react';
 import {
   MONTH, STATUS, TODAY, WH, baseOf, dateTH, docStatus, dueOf, monthTH, netOf, num, payTotals, peakSnapshotFreshness, thb, vatOf, whtOf } from
@@ -1065,13 +1065,9 @@ const PEAK_MODULES: Mod[] = [
   }
 ];
 
-const MODULES: Mod[] = [...CORE, ...MASTER, ...FINANCE];
-const GROUPS = [
-  { label: 'หน้าหลัก', ids: ['dashboard', 'approvals', 'audit'] },
-  { label: 'ซื้อและขาย', ids: ['sales', 'purchases', 'expenses'] },
-  { label: 'งานประจำ', ids: ['contacts', 'products', 'inventory', 'banking', 'payroll'] },
-  { label: 'บัญชีและรายงาน', ids: ['accounting', 'tax', 'assets', 'projects', 'reports'] }
-];
+// Retained for component-level regression coverage; the public shell never renders these modules.
+// eslint-disable-next-line react-refresh/only-export-components
+export const DEMO_MODULES: Mod[] = [...CORE, ...MASTER, ...FINANCE];
 const PEAK_GROUPS = [{ label: 'ข้อมูลจริงจาก PEAK', ids: PEAK_MODULES.map((module) => module.id) }];
 
 function Nav({ active, collapsed, onPick, modules, groups }: {active: string;collapsed: boolean;onPick: (id: string) => void;modules: Mod[];groups: Array<{label: string;ids: string[];}>;}) {
@@ -1111,8 +1107,6 @@ function Nav({ active, collapsed, onPick, modules, groups }: {active: string;col
 
 }
 
-interface DemoSession { email: string; }
-
 const COLLAPSED_KEY = 'thai-erp-sidebar-collapsed';
 
 function moduleFromLocation(modules: Mod[]) {
@@ -1133,18 +1127,18 @@ function readCollapsed() {
   }
 }
 
-function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () => void;}) {
-  const actor = session.email === 'demo@sample.local' ? 'ผู้ใช้เดโม' : session.email;
-  const { data, actions, toasts, storageIssue, recoveredStorage } = useStore(actor);
-  const peakMode = Boolean(data.peakSnapshot);
-  const peakFreshness = data.peakSnapshot ? peakSnapshotFreshness(data.peakSnapshot.capturedAt) : undefined;
-  const availableModules = peakMode ? PEAK_MODULES : MODULES;
-  const availableGroups = peakMode ? PEAK_GROUPS : GROUPS;
+function Workbench() {
+  const actor = 'ผู้ตรวจสอบ PEAK';
+  const { data, actions, toasts, storageIssue } = useStore(actor);
+  const peakSnapshot = data.peakSnapshot;
+  const peakMode = Boolean(peakSnapshot);
+  const peakFreshness = peakSnapshot ? peakSnapshotFreshness(peakSnapshot.capturedAt) : undefined;
+  const availableModules = PEAK_MODULES;
+  const availableGroups = PEAK_GROUPS;
   const [active, setActive] = useState(() => moduleFromLocation(availableModules));
   const [tableQuery, setTableQuery] = useState(queryFromLocation);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [open, setOpen] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [peakImportOpen, setPeakImportOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -1154,7 +1148,6 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
   const contentRef = useRef<HTMLDivElement>(null);
   const pageTitleRef = useRef<HTMLHeadingElement>(null);
   const m = useMemo(() => availableModules.find((x) => x.id === active) ?? availableModules[0], [active, availableModules]);
-  const pending = pendingList(data).length;
 
   const go = (id: string, query = '') => {
     if (!availableModules.some((item) => item.id === id)) return;
@@ -1170,7 +1163,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
   useEffect(() => {
     const onHistory = () => {
-      setActive(moduleFromLocation(peakMode ? PEAK_MODULES : MODULES));
+      setActive(moduleFromLocation(PEAK_MODULES));
       setTableQuery(queryFromLocation());
     };
     window.addEventListener('popstate', onHistory);
@@ -1179,7 +1172,7 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
       window.removeEventListener('popstate', onHistory);
       window.removeEventListener('hashchange', onHistory);
     };
-  }, [peakMode]);
+  }, []);
 
   useEffect(() => {
     if (availableModules.some((item) => item.id === active)) return;
@@ -1190,8 +1183,8 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
   }, [active, availableModules]);
 
   useEffect(() => {
-    document.title = `${m.th} | Siam ERP`;
-  }, [m.th]);
+    document.title = peakMode ? `${m.th} | Siam ERP` : 'เปิดข้อมูล PEAK | Siam ERP';
+  }, [m.th, peakMode]);
 
   useEffect(() => {
     try { localStorage.setItem(COLLAPSED_KEY, String(collapsed)); } catch { /* preference storage is optional */ }
@@ -1229,11 +1222,6 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
     };
   }, [open]);
 
-  const resetDemo = () => {
-    actions.reset();
-    setConfirmReset(false);
-  };
-
   const brand = (compact: boolean) =>
   <div className="flex items-center gap-2.5 px-3 py-3.5">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-[14px] font-bold text-white shadow-[0_8px_20px_-12px_rgba(37,99,235,0.9)]">ส</span>
@@ -1244,6 +1232,53 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
         </div> :
     null}
     </div>;
+
+  if (!peakSnapshot) {
+    return (
+      <main className="grid min-h-screen bg-slate-950 text-white lg:grid-cols-[minmax(0,1fr)_minmax(440px,0.72fr)]">
+        <section className="flex min-h-[42vh] flex-col px-6 py-6 sm:px-10 sm:py-8 lg:min-h-screen lg:px-14 lg:py-10" aria-label="Siam ERP">
+          <div className="flex items-center gap-3">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
+            <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[11px] text-slate-400">PEAK executive workspace</p></div>
+          </div>
+          <div className="my-auto max-w-2xl py-14 lg:pb-20">
+            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[12px] font-medium text-emerald-200">
+              <ShieldCheckIcon className="h-4 w-4" /> PEAK เท่านั้น
+            </span>
+            <h1 className="mt-6 text-balance text-[clamp(2.25rem,4vw,4rem)] font-semibold leading-[1.06] tracking-[-0.04em]">ข้อมูลจริงก่อน<br />จึงเริ่มวิเคราะห์</h1>
+            <p className="mt-5 max-w-[48ch] text-[15px] leading-7 text-slate-300">ระบบจะไม่แสดงตัวเลขตัวอย่าง กรุณาโหลด snapshot ที่ตรวจสอบจาก PEAK เพื่อเปิดพื้นที่ผู้บริหาร</p>
+          </div>
+          <p className="flex items-center gap-2 text-[12px] text-slate-400"><ShieldCheckIcon className="h-4 w-4 text-blue-400" />ข้อมูลอยู่เฉพาะแท็บนี้และไม่ถูกส่งไปยังเซิร์ฟเวอร์</p>
+        </section>
+
+        <section className="flex items-center justify-center bg-slate-50 px-5 py-10 text-slate-950 sm:px-8" aria-labelledby="peak-gate-title">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-[0_24px_70px_-40px_rgba(15,23,42,0.4)] sm:p-8">
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
+            <h2 id="peak-gate-title" className="mt-5 text-[26px] font-semibold tracking-[-0.03em]">เปิดข้อมูล PEAK</h2>
+            <p className="mt-2 text-[13px] leading-6 text-slate-600">ใช้ไฟล์ JSON ส่วนตัวที่สร้างจากบัญชี PEAK ของคุณ ข้อมูลต้องผ่านการตรวจสอบก่อนจึงจะแสดงผล</p>
+            <ul className="mt-5 space-y-3 text-[13px] text-slate-700">
+              <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>ไม่มีใบแจ้งหนี้หรือตัวเลขสาธิต</span></li>
+              <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>อ่านอย่างเดียวและลบเมื่อปิดแท็บ</span></li>
+              <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>แจ้งยอดที่ไม่ตรงกันแทนการเดาตัวเลข</span></li>
+            </ul>
+            <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-7 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+              <UploadIcon className="h-4 w-4" />เลือกข้อมูล PEAK
+            </button>
+            <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="mt-3 flex min-h-11 items-center justify-center text-[12px] font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK เพื่อเตรียมข้อมูล</a>
+          </div>
+        </section>
+
+        <JsonImportDialog
+          open={peakImportOpen}
+          onImport={(value) => {
+            const imported = actions.importPeakSnapshot(value);
+            if (imported) go('dashboard');
+            return imported;
+          }}
+          onClose={() => setPeakImportOpen(false)} />
+      </main>
+    );
+  }
 
 
   return (
@@ -1302,20 +1337,12 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <Button
               size="sm" icon={UploadIcon} onClick={() => setPeakImportOpen(true)}
-              ariaLabel={data.peakSnapshot ? 'เปลี่ยนไฟล์ข้อมูล PEAK' : 'นำเข้าข้อมูล PEAK'}
-              title={data.peakSnapshot ? 'อัปเดตข้อมูล PEAK' : 'นำเข้าข้อมูล PEAK'}
+              ariaLabel="เปลี่ยนไฟล์ข้อมูล PEAK"
+              title="อัปเดตข้อมูล PEAK"
               className="min-w-11 px-2 sm:min-w-0 sm:px-2.5">
-              <span className="hidden sm:inline">{data.peakSnapshot ? 'อัปเดต PEAK' : 'นำเข้า PEAK'}</span>
+              <span className="hidden sm:inline">อัปเดต PEAK</span>
             </Button>
-            {!peakMode ? <><button
-              type="button" onClick={() => go('approvals')}
-              aria-label={`งานรออนุมัติ ${pending} รายการ`}
-              className={cx('inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 sm:min-h-9', pending ? 'bg-amber-50 text-amber-800' : 'bg-blue-50 text-blue-700')}>
-
-              <ClipboardCheckIcon className="h-4 w-4" /><span className="hidden sm:inline">อนุมัติ</span><span className="tabular-nums">{pending}</span>
-            </button>
-            <Button size="sm" icon={RotateCcwIcon} onClick={() => setConfirmReset(true)} className="hidden sm:inline-flex">รีเซ็ต</Button></> : null}
-            <Button size="sm" icon={LogOutIcon} onClick={() => peakMode ? setConfirmSignOut(true) : onSignOut()} className="min-w-11 px-2 sm:min-w-0 sm:px-2.5" ariaLabel={peakMode ? 'ออกและลบข้อมูล PEAK' : 'ออกจากระบบทดลอง'} title={peakMode ? 'ออกและลบข้อมูล PEAK' : session.email}><span className="hidden sm:inline">ออก</span></Button>
+            <Button size="sm" icon={LogOutIcon} onClick={() => setConfirmSignOut(true)} className="min-w-11 px-2 sm:min-w-0 sm:px-2.5" ariaLabel="ออกและลบข้อมูล PEAK" title="ออกและลบข้อมูล PEAK"><span className="hidden sm:inline">ออก</span></Button>
           </div>
         </header>
 
@@ -1326,19 +1353,13 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
           role={peakFreshness.status === 'stale' ? 'alert' : 'status'}>
           {peakFreshness.status === 'fresh' ? <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" /> : <AlertCircleIcon className="h-4 w-4 shrink-0" />}
           <span className="min-w-0 flex-1"><strong>ข้อมูลจริงจาก PEAK</strong> · อ่านอย่างเดียว · {peakFreshness.label} · อยู่เฉพาะแท็บนี้</span>
-          <button type="button" onClick={actions.clearPeakSnapshot} className="inline-flex min-h-11 items-center px-1 font-semibold underline decoration-current/30 underline-offset-2 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">กลับโหมดทดลอง</button>
+          <button type="button" onClick={() => setConfirmSignOut(true)} className="inline-flex min-h-11 items-center px-1 font-semibold underline decoration-current/30 underline-offset-2 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">ลบข้อมูล</button>
         </div> : null}
 
         {storageIssue ?
         <div className="flex items-center gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-[12px] text-rose-800 lg:px-6" role="alert">
           <AlertCircleIcon className="h-4 w-4 shrink-0" />
           <span><strong>บันทึกไม่ได้</strong> · การเปลี่ยนแปลงจะหายเมื่อปิดหน้านี้</span>
-        </div> : null}
-
-        {recoveredStorage ?
-        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-[12px] text-amber-900 lg:px-6" role="status">
-          <AlertCircleIcon className="h-4 w-4 shrink-0" />
-          <span><strong>เริ่มข้อมูลใหม่แล้ว</strong> · ข้อมูลสาธิตเดิมอ่านไม่ได้</span>
         </div> : null}
 
         <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 py-4 outline-none lg:px-6 lg:py-5">
@@ -1364,8 +1385,8 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
         <footer className="border-t border-slate-200 px-4 py-3 text-[11px] text-slate-500 lg:px-6">
           <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-1.5">
-            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : data.peakSnapshot ? 'PEAK snapshot · อ่านอย่างเดียว · ลบเมื่อออกหรือปิดแท็บ' : 'ข้อมูลสาธิต · บันทึกอัตโนมัติในเบราว์เซอร์นี้'}</span>
-            <span>{data.peakSnapshot ? `ตรวจจาก PEAK ${peakStamp(data.peakSnapshot.capturedAt)}` : `ข้อมูล ณ ${dateTH(TODAY)} · ปิดงวดถึง ${dateTH(data.settings.closedThrough)}`}</span>
+            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : 'PEAK snapshot · อ่านอย่างเดียว · ลบเมื่อออกหรือปิดแท็บ'}</span>
+            <span>{`ตรวจจาก PEAK ${peakStamp(peakSnapshot.capturedAt)}`}</span>
           </div>
         </footer>
       </div>
@@ -1385,18 +1406,11 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
       </div>
 
       <ConfirmDialog
-        open={confirmReset}
-        title="คืนค่าข้อมูลสาธิต?"
-        description="การเปลี่ยนแปลงทั้งหมดในเบราว์เซอร์นี้จะถูกลบและกลับไปเป็นข้อมูลเริ่มต้น"
-        confirmLabel="คืนค่าเริ่มต้น"
-        onConfirm={resetDemo}
-        onClose={() => setConfirmReset(false)} />
-      <ConfirmDialog
         open={confirmSignOut}
         title="ออกและลบข้อมูล PEAK?"
-        description="snapshot จะถูกลบจากแท็บนี้ ข้อมูลสาธิตจะยังอยู่"
+        description="snapshot จะถูกลบจากแท็บนี้ และระบบจะกลับไปหน้าที่ไม่มีข้อมูลการเงิน"
         confirmLabel="ออกและลบ"
-        onConfirm={() => { actions.clearPeakSnapshot(); onSignOut(); }}
+        onConfirm={() => { actions.clearPeakSnapshot(); setConfirmSignOut(false); }}
         onClose={() => setConfirmSignOut(false)} />
       <JsonImportDialog
         open={peakImportOpen}
@@ -1410,120 +1424,8 @@ function Workbench({ session, onSignOut }: {session: DemoSession;onSignOut: () =
 
 }
 
-const SESSION_KEY = 'thai-erp-demo-session';
-const DEMO_EMAIL = 'demo@sample.local';
-const DEMO_PASSWORD = 'demo1234';
-
-function SignIn({ onEnter }: {onEnter: (email: string) => void;}) {
-  const [email, setEmail] = useState(DEMO_EMAIL);
-  const [password, setPassword] = useState(DEMO_PASSWORD);
-  const [errors, setErrors] = useState<{email?: string;password?: string;}>({});
-  const [showPassword, setShowPassword] = useState(false);
-  const emailRef = useRef<HTMLInputElement>(null);
-  const passwordRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    document.title = 'เข้าสู่ระบบสาธิต | Siam ERP';
-  }, []);
-
-  const submit = (event: React.FormEvent) => {
-    event.preventDefault();
-    const nextErrors: {email?: string;password?: string;} = {};
-    if (email.trim() !== DEMO_EMAIL) nextErrors.email = 'ใช้บัญชีตัวอย่างที่แสดงเท่านั้น';
-    if (password !== DEMO_PASSWORD) nextErrors.password = 'รหัสผ่านตัวอย่างไม่ถูกต้อง';
-    if (nextErrors.email || nextErrors.password) {
-      setErrors(nextErrors);
-      window.requestAnimationFrame(() => (nextErrors.email ? emailRef.current : passwordRef.current)?.focus());
-      return;
-    }
-    onEnter(DEMO_EMAIL);
-  };
-
-  return (
-    <main className="grid min-h-screen bg-white lg:grid-cols-[minmax(0,1.05fr)_minmax(460px,0.95fr)]">
-      <section className="relative hidden overflow-hidden bg-slate-950 px-12 py-10 text-white lg:flex lg:flex-col" aria-label="Siam ERP">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
-          <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[11px] text-slate-400">ระบบบัญชีและการดำเนินงาน</p></div>
-        </div>
-        <div className="my-auto max-w-xl pb-16">
-          <p className="text-balance text-[clamp(2rem,3.8vw,3.75rem)] font-semibold leading-[1.08] tracking-[-0.035em]">เห็นภาพการเงิน<br />ตัดสินใจได้ทันที</p>
-          <p className="mt-5 max-w-[48ch] text-[15px] leading-7 text-slate-300">ยอดขาย เงินสด ภาษี และงานอนุมัติในพื้นที่เดียว</p>
-        </div>
-        <div className="flex items-center gap-2 text-[12px] text-slate-400"><ShieldCheckIcon className="h-4 w-4 text-blue-400" />ข้อมูลบนหน้านี้เป็นข้อมูลสาธิต</div>
-      </section>
-
-      <section className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-10 sm:px-8" aria-labelledby="sign-in-title">
-        <div className="w-full max-w-md">
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-700 text-base font-bold text-white">ส</span>
-            <div><p className="font-semibold text-slate-950">Siam ERP</p><p className="text-[12px] text-slate-500">ระบบสาธิต</p></div>
-          </div>
-          <h1 id="sign-in-title" className="text-[28px] font-semibold tracking-[-0.03em] text-slate-950">เปิดพื้นที่ทดลอง</h1>
-          <p className="mt-1 text-[13px] text-slate-600">บัญชีตัวอย่างเท่านั้น · ไม่ใช่การยืนยันตัวตนจริง</p>
-
-          <form className="mt-7 space-y-5" onSubmit={submit} noValidate>
-          <div>
-            <label htmlFor="sign-in-email" className="mb-1.5 block text-[13px] font-medium text-slate-700">อีเมล</label>
-            <input
-              ref={emailRef} id="sign-in-email" type="email" inputMode="email" autoComplete="off" value={email} maxLength={80} required aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'sign-in-email-error' : undefined}
-              onChange={(event) => { setEmail(event.target.value); if (errors.email) setErrors((current) => ({ ...current, email: undefined })); }}
-              className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 text-base text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-blue-700 focus:ring-2 focus:ring-blue-100 sm:text-[14px]"
-            />
-            {errors.email ? <p id="sign-in-email-error" className="mt-1.5 flex items-center gap-1.5 text-[12px] text-rose-700"><AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />{errors.email}</p> : null}
-          </div>
-          <div>
-            <label htmlFor="sign-in-password" className="mb-1.5 block text-[13px] font-medium text-slate-700">รหัสผ่าน</label>
-            <span className="relative block">
-              <input
-                ref={passwordRef} id="sign-in-password" type={showPassword ? 'text' : 'password'} autoComplete="off" value={password} maxLength={32} required aria-invalid={Boolean(errors.password)} aria-describedby={errors.password ? 'sign-in-password-error' : undefined}
-                onChange={(event) => { setPassword(event.target.value); if (errors.password) setErrors((current) => ({ ...current, password: undefined })); }}
-                className="h-12 w-full rounded-xl border border-slate-300 bg-white px-3.5 pr-12 text-base text-slate-950 outline-none transition focus:border-blue-700 focus:ring-2 focus:ring-blue-100 sm:text-[14px]"
-              />
-              <button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'} className="absolute inset-y-0 right-1 flex w-11 items-center justify-center rounded-lg text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
-                {showPassword ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-              </button>
-            </span>
-            {errors.password ? <p id="sign-in-password-error" className="mt-1.5 flex items-center gap-1.5 text-[12px] text-rose-700"><AlertCircleIcon className="h-3.5 w-3.5 shrink-0" />{errors.password}</p> : null}
-          </div>
-          {(errors.email || errors.password) ? <p className="sr-only" role="alert">กรุณาตรวจสอบข้อมูลเข้าสู่ระบบ</p> : null}
-          <button type="submit" className="flex h-12 w-full items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-            เปิดพื้นที่ทดลอง
-          </button>
-        </form>
-        <p className="mt-5 text-center text-[11px] leading-5 text-slate-500">ข้อมูลตัวอย่างถูกกรอกไว้แล้ว · อย่าใช้รหัสผ่านจริง</p>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function readSession(): DemoSession | null {
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<DemoSession>;
-    return typeof parsed?.email === 'string' && parsed.email.trim() ? { email: parsed.email } : null;
-  } catch {
-    return null;
-  }
-}
-
 function AppContent() {
-  const [session, setSession] = useState<DemoSession | null>(() => readSession());
-
-  const enter = (email: string) => {
-    const next = { email: email.trim() };
-    try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(next)); } catch { /* session still works in memory */ }
-    setSession(next);
-  };
-
-  const leave = () => {
-    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* session still ends in memory */ }
-    setSession(null);
-  };
-
-  return session ? <Workbench session={session} onSignOut={leave} /> : <SignIn onEnter={enter} />;
+  return <Workbench />;
 }
 
 interface ErrorBoundaryState {failed: boolean;}
@@ -1541,9 +1443,9 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode;}, ErrorB
         <p className="mt-2 text-sm leading-6 text-slate-600">ลองโหลดหน้าใหม่ หรือคืนค่าข้อมูลหากไฟล์ที่บันทึกในเบราว์เซอร์เสียหาย</p>
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <button type="button" onClick={() => window.location.reload()} className="h-11 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">โหลดใหม่</button>
-          <button type="button" onClick={() => { try { localStorage.removeItem(DEMO_STORAGE_KEY); sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* continue with reload */ } window.location.reload(); }} className="h-11 rounded-xl border border-rose-200 bg-white px-5 text-sm font-semibold text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2">คืนค่าข้อมูล</button>
+          <button type="button" onClick={() => { try { localStorage.removeItem(DEMO_STORAGE_KEY); sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* continue with reload */ } window.location.reload(); }} className="h-11 rounded-xl border border-rose-200 bg-white px-5 text-sm font-semibold text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2">ล้างข้อมูลในแท็บ</button>
         </div>
-        <p className="mt-3 text-[11px] text-slate-500">การคืนค่าจะลบการเปลี่ยนแปลงสาธิตในเครื่องนี้</p>
+        <p className="mt-3 text-[11px] text-slate-500">การล้างข้อมูลจะลบ snapshot PEAK ออกจากแท็บนี้</p>
       </section>
     </main>;
   }
