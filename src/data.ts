@@ -55,6 +55,10 @@ export interface PeakFinanceAccount {
 export interface PeakSourceFreshness {
   key: string;label: string;asOf: string;scope: string;
 }
+export type PeakFreshnessStatus = 'fresh' | 'aging' | 'stale';
+export interface PeakFreshness {
+  status: PeakFreshnessStatus;ageHours: number;label: string;
+}
 export interface PeakSnapshot {
   schemaVersion: 3;
   source: 'PEAK';
@@ -170,6 +174,7 @@ export function isPeakSnapshot(value: unknown): value is PeakSnapshot {
   if (!financeAccounts.every((account) => Boolean(account && typeof account.id === 'string' && account.id.length <= 60 &&
     (account.type === 'cash' || account.type === 'bank' || account.type === 'ewallet') &&
     typeof account.name === 'string' && account.name.trim() && account.name.length <= 120 && finite(account.balance)))) return false;
+  if (financeAccounts.some((account) => account.type === 'bank' && /\d{6,}/.test(account.name))) return false;
   if (new Set(financeAccounts.map((account) => account.id)).size !== financeAccounts.length) return false;
   if (!near(financeAccounts.reduce((sum, account) => sum + account.balance, 0), snapshot.cashChannels.total)) return false;
   const accountTypeTotal = (type: PeakFinanceAccount['type']) => financeAccounts.filter((account) => account.type === type).reduce((sum, account) => sum + account.balance, 0);
@@ -197,6 +202,85 @@ export function isPeakSnapshot(value: unknown): value is PeakSnapshot {
       typeof finding.detail === 'string' && finding.detail.trim() && finding.detail.length <= 500)
   )) return false;
   return snapshot.notes === undefined || (Array.isArray(snapshot.notes) && snapshot.notes.length <= 12 && snapshot.notes.every((note) => typeof note === 'string' && note.length <= 500));
+}
+
+/** Keep only audited fields so unknown or accidental private data never persists. */
+export function sanitizePeakSnapshot(value: unknown): PeakSnapshot | undefined {
+  if (!isPeakSnapshot(value)) return undefined;
+  return {
+    schemaVersion: 3,
+    source: 'PEAK',
+    companyName: value.companyName,
+    asOf: value.asOf,
+    capturedAt: value.capturedAt,
+    currency: 'THB',
+    ytd: { revenue: value.ytd.revenue, expenses: value.ytd.expenses, profit: value.ytd.profit },
+    income: {
+      issued: value.income.issued, paid: value.income.paid, overdue: value.income.overdue,
+      overdueCount: value.income.overdueCount, currentMonthSales: value.income.currentMonthSales,
+      currentMonthSalesChangePct: value.income.currentMonthSalesChangePct,
+      expiredQuotation: value.income.expiredQuotation, expiredQuotationCount: value.income.expiredQuotationCount
+    },
+    expense: {
+      recorded: value.expense.recorded, paid: value.expense.paid, overdue: value.expense.overdue,
+      overdueCount: value.expense.overdueCount, currentMonthRecorded: value.expense.currentMonthRecorded,
+      currentMonthCount: value.expense.currentMonthCount, overdueActionAmount: value.expense.overdueActionAmount,
+      overdueActionCount: value.expense.overdueActionCount
+    },
+    taxes: { pp30: value.taxes.pp30, pnd1: value.taxes.pnd1, pnd3: value.taxes.pnd3, pnd53: value.taxes.pnd53 },
+    salesMix: { product: value.salesMix.product, service: value.salesMix.service },
+    topCustomers: value.topCustomers.map((customer) => ({ name: customer.name, amount: customer.amount })),
+    monthlyPL: value.monthlyPL.map((month) => ({
+      month: month.month, revenue: month.revenue, expenses: month.expenses, profit: month.profit,
+      ...(month.partial === undefined ? {} : { partial: month.partial })
+    })),
+    financialPosition: {
+      totalAssets: value.financialPosition.totalAssets, currentAssets: value.financialPosition.currentAssets,
+      nonCurrentAssets: value.financialPosition.nonCurrentAssets, totalLiabilities: value.financialPosition.totalLiabilities,
+      currentLiabilities: value.financialPosition.currentLiabilities, equity: value.financialPosition.equity,
+      currentRatio: value.financialPosition.currentRatio, debtToEquity: value.financialPosition.debtToEquity,
+      debtRatioPct: value.financialPosition.debtRatioPct, cashAndEquivalents: value.financialPosition.cashAndEquivalents,
+      shortTermLoans: value.financialPosition.shortTermLoans, inventory: value.financialPosition.inventory,
+      otherCurrentAssets: value.financialPosition.otherCurrentAssets
+    },
+    cashChannels: {
+      total: value.cashChannels.total, cash: value.cashChannels.cash, bank: value.cashChannels.bank,
+      eWallet: value.cashChannels.eWallet, reconciliationRequired: value.cashChannels.reconciliationRequired
+    },
+    financeAccounts: value.financeAccounts.map((account) => ({
+      id: account.id, type: account.type, name: account.name, balance: account.balance
+    })),
+    recentIncomeRows: value.recentIncomeRows.map((row) => ({
+      id: row.id, documentNo: row.documentNo, party: row.party, issueDate: row.issueDate,
+      amount: row.amount, status: row.status, activity: row.activity, activityAt: row.activityAt
+    })),
+    recentExpenseRows: value.recentExpenseRows.map((row) => ({
+      id: row.id, documentNo: row.documentNo, party: row.party, issueDate: row.issueDate,
+      amount: row.amount, status: row.status, activity: row.activity, activityAt: row.activityAt
+    })),
+    sources: value.sources.map((source) => ({
+      key: source.key, label: source.label, asOf: source.asOf, scope: source.scope
+    })),
+    insights: {
+      quotationAwaitingAmount: value.insights.quotationAwaitingAmount,
+      quotationAwaitingCount: value.insights.quotationAwaitingCount,
+      invoiceAlertAmount: value.insights.invoiceAlertAmount,
+      invoiceAlertCount: value.insights.invoiceAlertCount
+    },
+    qualityFindings: value.qualityFindings.map((finding) => ({
+      key: finding.key, severity: finding.severity, title: finding.title, detail: finding.detail
+    })),
+    notes: value.notes?.slice()
+  };
+}
+
+export function peakSnapshotFreshness(capturedAt: string, now = Date.now()): PeakFreshness {
+  const captured = Date.parse(capturedAt);
+  const ageHours = Number.isFinite(captured) ? Math.max(0, (now - captured) / 3_600_000) : Number.POSITIVE_INFINITY;
+  if (ageHours <= 24) return { status: 'fresh', ageHours, label: 'อัปเดตภายใน 24 ชม.' };
+  const days = Math.max(1, Math.floor(ageHours / 24));
+  if (ageHours <= 72) return { status: 'aging', ageHours, label: `ข้อมูล ${days} วันก่อน` };
+  return { status: 'stale', ageHours, label: Number.isFinite(ageHours) ? `ข้อมูลเก่า ${days} วัน` : 'ไม่ทราบเวลาอัปเดต' };
 }
 
 const TM = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
