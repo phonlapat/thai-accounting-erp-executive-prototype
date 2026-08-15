@@ -1240,35 +1240,26 @@ function Workbench() {
         <section className="flex flex-col px-5 py-5 sm:px-9 sm:py-7 lg:min-h-screen lg:px-14 lg:py-10" aria-label="Siam ERP">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
-            <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[12px] text-slate-400">พื้นที่ผู้บริหารจาก PEAK</p></div>
+            <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[12px] text-slate-400">ข้อมูลจาก PEAK</p></div>
           </div>
           <div className="mt-9 max-w-2xl pb-6 sm:mt-12 lg:my-auto lg:py-14 lg:pb-20">
             <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[12px] font-medium text-emerald-200">
-              <ShieldCheckIcon className="h-4 w-4" /> PEAK เท่านั้น
+              <ShieldCheckIcon className="h-4 w-4" /> PEAK
             </span>
-            <h1 className="mt-5 text-balance text-[clamp(2rem,4vw,4rem)] font-semibold leading-[1.08] tracking-[-0.035em]">ข้อมูลจริงก่อน<br />จึงเริ่มวิเคราะห์</h1>
-            <p className="mt-4 max-w-[48ch] text-[15px] leading-6 text-slate-300">เปิดไฟล์ข้อมูล PEAK ที่ตรวจแล้ว เพื่อดูสถานะ ความเสี่ยง และงานที่ต้องตาม</p>
+            <h1 className="mt-5 text-balance text-[clamp(2rem,4vw,4rem)] font-semibold leading-[1.08] tracking-[-0.035em]">เปิดข้อมูล PEAK</h1>
+            <p className="mt-4 max-w-[48ch] text-[15px] leading-6 text-slate-300">ข้อมูลจริง · อ่านอย่างเดียว · อยู่ในแท็บนี้</p>
           </div>
-          <p className="hidden items-center gap-2 text-[12px] text-slate-400 lg:flex"><ShieldCheckIcon className="h-4 w-4 text-blue-400" />ข้อมูลอยู่เฉพาะแท็บนี้และไม่ถูกส่งไปยังเซิร์ฟเวอร์</p>
         </section>
 
         <section className="flex items-start justify-center bg-slate-50 px-5 py-6 text-slate-950 sm:px-8 sm:py-8 lg:items-center lg:py-10" aria-labelledby="peak-gate-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.38)] sm:p-8">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
-            <h2 id="peak-gate-title" className="mt-4 text-[24px] font-semibold tracking-[-0.025em]">เปิดพื้นที่ผู้บริหาร</h2>
-            <p className="mt-2 text-[13px] leading-6 text-slate-600">เลือกไฟล์ข้อมูล PEAK ที่ Codex ตรวจแล้ว ระบบจะตรวจรูปแบบอีกครั้งก่อนเปิด</p>
+            <h2 id="peak-gate-title" className="text-[24px] font-semibold tracking-[-0.025em]">เลือกไฟล์ PEAK</h2>
             <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-              <UploadIcon className="h-4 w-4" />เลือกไฟล์ข้อมูล PEAK
+              <UploadIcon className="h-4 w-4" />เลือกไฟล์
             </button>
-            <ul className="mt-5 space-y-2.5 text-[13px] text-slate-700">
-              <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>ไม่มีใบแจ้งหนี้หรือตัวเลขสาธิต</span></li>
-              <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>อ่านอย่างเดียว · ลบเมื่อปิดแท็บ</span></li>
-              <li className="flex gap-2.5"><CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /><span>แจ้งยอดที่ไม่ตรงกันแทนการเดาตัวเลข</span></li>
-            </ul>
+            <p className="mt-2 text-[12px] text-slate-500">JSON v3 · สูงสุด 1 MB</p>
             <div className="mt-5 border-t border-slate-200 pt-4">
-              <p className="text-[12px] font-semibold text-slate-900">ยังไม่มีไฟล์?</p>
-              <p className="mt-1 text-[12px] leading-5 text-slate-600">เปิด PEAK แล้วกลับมาพิมพ์ “logged in” ใน Codex เพื่อให้ตรวจและเตรียมไฟล์ให้</p>
-              <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-11 items-center text-[12px] font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK ในแท็บใหม่</a>
+              <p className="text-[12px] leading-5 text-slate-600">ไม่มีไฟล์? <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK</a> แล้วพิมพ์ “logged in” ใน Codex</p>
             </div>
           </div>
         </section>
@@ -1336,7 +1327,7 @@ function Workbench() {
           <div className="min-w-0 flex-1">
             <h1 ref={pageTitleRef} tabIndex={-1} className="truncate text-[16px] font-semibold tracking-[-0.02em] text-slate-950 outline-none lg:text-[18px]">{m.th}</h1>
             <p className={cx('max-w-[72ch] truncate text-[12px] text-slate-500', m.id === 'dashboard' ? 'block' : 'hidden xl:block')}>
-              {m.id === 'dashboard' ? data.peakSnapshot ? `ข้อมูลจริงจาก PEAK · ${dateTH(data.peakSnapshot.asOf.slice(0, 10))}` : `ข้อมูล ${dateTH(TODAY)} · ปิดงวด ${dateTH(data.settings.closedThrough)}` : m.desc}
+              {m.id === 'dashboard' ? data.peakSnapshot ? `PEAK · ${dateTH(data.peakSnapshot.asOf.slice(0, 10))}` : `ข้อมูล ${dateTH(TODAY)} · ปิดงวด ${dateTH(data.settings.closedThrough)}` : m.desc}
             </p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -1357,7 +1348,7 @@ function Workbench() {
             peakFreshness.status === 'aging' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-rose-200 bg-rose-50 text-rose-900')}
           role={peakFreshness.status === 'stale' ? 'alert' : 'status'}>
           {peakFreshness.status === 'fresh' ? <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" /> : <AlertCircleIcon className="h-4 w-4 shrink-0" />}
-          <span className="min-w-0 flex-1"><strong>ข้อมูลจริงจาก PEAK</strong> · อ่านอย่างเดียว · {peakFreshness.label} · อยู่เฉพาะแท็บนี้</span>
+          <span className="min-w-0 flex-1"><strong>{peakFreshness.label}</strong> · อ่านอย่างเดียว · อยู่ในแท็บนี้</span>
           <button type="button" onClick={() => setConfirmSignOut(true)} className="inline-flex min-h-11 items-center px-1 font-semibold underline decoration-current/30 underline-offset-2 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">ลบข้อมูล</button>
         </div> : null}
 
@@ -1389,9 +1380,8 @@ function Workbench() {
         </main>
 
         <footer className="border-t border-slate-200 px-4 py-3 text-[12px] text-slate-500 lg:px-6">
-          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-1.5">
-            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'ไม่สามารถบันทึกในเบราว์เซอร์ได้' : 'ไฟล์ข้อมูล PEAK · อ่านอย่างเดียว · ลบเมื่อออกหรือปิดแท็บ'}</span>
-            <span>{`ตรวจจาก PEAK ${peakStamp(peakSnapshot.capturedAt)}`}</span>
+          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-1.5">
+            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'บันทึกไม่ได้' : `PEAK · ตรวจเมื่อ ${peakStamp(peakSnapshot.capturedAt)}`}</span>
           </div>
         </footer>
       </div>
@@ -1412,9 +1402,9 @@ function Workbench() {
 
       <ConfirmDialog
         open={confirmSignOut}
-        title="ออกและลบข้อมูล PEAK?"
-        description="ไฟล์ข้อมูล PEAK จะถูกลบจากแท็บนี้ และระบบจะกลับไปหน้าที่ไม่มีข้อมูลการเงิน"
-        confirmLabel="ออกและลบ"
+        title="ลบข้อมูลจากแท็บ?"
+        description="ข้อมูล PEAK จะหายจากแท็บนี้"
+        confirmLabel="ลบและออก"
         onConfirm={() => { actions.clearPeakSnapshot(); setConfirmSignOut(false); }}
         onClose={() => setConfirmSignOut(false)} />
       <JsonImportDialog
