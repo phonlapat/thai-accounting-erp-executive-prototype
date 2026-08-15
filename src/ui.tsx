@@ -72,7 +72,7 @@ export function CardHead({ title, sub, action }: {title: string;sub?: string;act
     <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
       <div className="min-w-0">
         <h2 className="truncate text-[15px] font-semibold tracking-[-0.01em] text-slate-900">{title}</h2>
-        {sub ? <p className="line-clamp-2 text-[11px] leading-4 text-slate-500 sm:truncate">{sub}</p> : null}
+        {sub ? <p className="line-clamp-2 text-[12px] leading-4 text-slate-500 sm:truncate">{sub}</p> : null}
       </div>
       {action}
     </header>);
@@ -84,14 +84,14 @@ export function KpiStrip({ items }: {items: Array<{label: string;sub?: string;va
     <div className={cx('grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200', items.length === 4 ? 'sm:grid-cols-4' : 'sm:grid-cols-3 lg:grid-cols-5')}>
       {items.map((k, index) =>
       <div key={k.label} className={cx('min-w-0 bg-white px-3.5 py-3', items.length % 2 === 1 && index === items.length - 1 && 'col-span-2 sm:col-span-2 lg:col-span-1')}>
-          <p className="truncate text-[11.5px] font-medium text-slate-600">
+          <p className="truncate text-[12px] font-medium text-slate-600">
             {k.label}
           </p>
           <p className={cx('mt-0.5 truncate text-[19px] font-semibold tracking-[-0.02em] tabular-nums sm:text-[18px]',
         k.tone === 'ok' ? 'text-emerald-700' : k.tone === 'bad' ? 'text-rose-700' : k.tone === 'warn' ? 'text-amber-700' : 'text-slate-900')}>
             {k.value}
           </p>
-          {k.sub || k.hint ? <p className="truncate text-[10.5px] text-slate-500">{k.sub ?? k.hint}</p> : null}
+          {k.sub || k.hint ? <p className="truncate text-[11.5px] leading-4 text-slate-500">{k.sub ?? k.hint}</p> : null}
         </div>
       )}
     </div>);
@@ -191,7 +191,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
             <h2 id="confirm-title" className="text-[17px] font-semibold tracking-[-0.02em] text-slate-950">{title}</h2>
             <p id="confirm-description" className="mt-1 text-[13px] leading-5 text-slate-600">{description}</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+          <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
             <XIcon className="h-4 w-4" />
           </button>
         </div>
@@ -204,17 +204,49 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
   );
 }
 
+function peakImportError(value: unknown): string {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ไฟล์นี้ไม่มีโครงสร้างข้อมูล PEAK กรุณาเลือกไฟล์ที่ Codex ตรวจแล้ว';
+  const snapshot = value as Record<string, unknown>;
+  if (snapshot.schemaVersion !== 3) return 'รองรับเฉพาะไฟล์ PEAK รูปแบบ v3 กรุณาสร้างไฟล์ใหม่แล้วลองอีกครั้ง';
+  if (snapshot.source !== 'PEAK') return 'ไม่พบแหล่งข้อมูล PEAK ในไฟล์ กรุณาตรวจว่าเลือกไฟล์ถูกชุด';
+  if (snapshot.currency !== 'THB') return 'ไฟล์ต้องใช้สกุลเงินบาท (THB)';
+  if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim()) return 'ไม่พบชื่อกิจการ กรุณาสร้างไฟล์ใหม่จากบัญชี PEAK ที่ต้องการ';
+  if (typeof snapshot.asOf !== 'string' || typeof snapshot.capturedAt !== 'string') return 'ไม่พบวันที่ตรวจข้อมูล กรุณาสร้างไฟล์ใหม่แล้วลองอีกครั้ง';
+  const required = ['ytd', 'income', 'expense', 'taxes', 'financialPosition', 'cashChannels', 'sources'];
+  const missing = required.filter((key) => !snapshot[key]);
+  if (missing.length) return `ข้อมูลไม่ครบ ${missing.length} ส่วน กรุณาสร้างไฟล์ใหม่แล้วลองอีกครั้ง`;
+  return 'ตัวเลขหรือรายละเอียดภายในไม่ผ่านการตรวจสอบ กรุณาสร้างไฟล์ใหม่จาก PEAK แล้วลองอีกครั้ง';
+}
+
 export function JsonImportDialog({ open, onImport, onClose }: {
   open: boolean;onImport: (value: unknown) => boolean;onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const fileButtonRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
   onCloseRef.current = onClose;
+  const preview = useMemo(() => {
+    if (!draft.trim()) return undefined;
+    try {
+      const value = JSON.parse(draft) as unknown;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+      const snapshot = value as Record<string, unknown>;
+      const capturedAt = typeof snapshot.capturedAt === 'string' && Number.isFinite(Date.parse(snapshot.capturedAt)) ? dateTH(snapshot.capturedAt.slice(0, 10)) : 'ไม่พบ';
+      return {
+        company: typeof snapshot.companyName === 'string' && snapshot.companyName.trim() ? snapshot.companyName : 'ไม่พบ',
+        version: snapshot.schemaVersion === undefined ? 'ไม่พบ' : `v${String(snapshot.schemaVersion)}`,
+        capturedAt,
+        sources: Array.isArray(snapshot.sources) ? `${snapshot.sources.length} แหล่ง` : 'ไม่พบ'
+      };
+    } catch {
+      return undefined;
+    }
+  }, [draft]);
 
   useEffect(() => {
     if (!open) {
@@ -229,7 +261,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
     const previousRootHidden = appRoot?.getAttribute('aria-hidden') ?? null;
     const previousRootInert = appRoot?.inert ?? false;
     document.body.style.overflow = 'hidden';
-    textareaRef.current?.focus();
+    fileButtonRef.current?.focus();
     if (appRoot) {
       appRoot.inert = true;
       appRoot.setAttribute('aria-hidden', 'true');
@@ -237,7 +269,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCloseRef.current();
       if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'));
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'));
       if (!focusable.length) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
@@ -283,44 +315,52 @@ export function JsonImportDialog({ open, onImport, onClose }: {
     try {
       const parsed = JSON.parse(draft) as unknown;
       if (!onImport(parsed)) {
-        setError('รูปแบบข้อมูลไม่ถูกต้อง');
+        setError(peakImportError(parsed));
         return;
       }
       onClose();
     } catch {
-      setError('JSON อ่านไม่ได้ กรุณาตรวจสอบแล้วลองอีกครั้ง');
+      setError('อ่านข้อมูลในไฟล์ไม่ได้ กรุณาเลือกไฟล์ใหม่ หรือเปิดตัวเลือกขั้นสูงเพื่อตรวจรูปแบบ JSON');
     }
   };
   return createPortal(
     <div className="erp-fade-in fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="json-import-title" aria-describedby="json-import-description" className="erp-dialog-in w-full max-w-xl rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] sm:p-6">
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
-            <h2 id="json-import-title" className="text-[17px] font-semibold tracking-[-0.02em] text-slate-950">นำเข้าข้อมูล PEAK</h2>
-            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">ข้อมูลจะอยู่เฉพาะแท็บนี้ และถูกลบเมื่อออกจากระบบหรือปิดแท็บ</p>
+            <h2 id="json-import-title" className="text-[18px] font-semibold tracking-[-0.02em] text-slate-950">เปิดไฟล์ข้อมูล PEAK</h2>
+            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">ระบบจะตรวจไฟล์ก่อนเปิด ข้อมูลอยู่เฉพาะแท็บนี้และลบเมื่อปิดแท็บ</p>
           </div>
-          <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"><XIcon className="h-4 w-4" /></button>
+          <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"><XIcon className="h-4 w-4" /></button>
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button onClick={() => fileRef.current?.click()} icon={UploadIcon}>เลือกไฟล์ JSON</Button>
-          <span className="min-w-0 truncate text-[12px] text-slate-500">{fileName || 'ไม่เกิน 1 MB'}</span>
+          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={UploadIcon}>เลือกไฟล์ข้อมูล PEAK</Button>
+          <span className="min-w-0 truncate text-[12px] text-slate-500">{fileName || 'รูปแบบ v3 · ไม่เกิน 1 MB'}</span>
           <input
             ref={fileRef} type="file" accept="application/json,.json" className="sr-only"
             aria-hidden="true" tabIndex={-1}
             onChange={(event) => { void readFile(event.target.files?.[0]); event.currentTarget.value = ''; }} />
         </div>
-        <div className="my-4 flex items-center gap-3 text-[11px] text-slate-400" aria-hidden="true"><span className="h-px flex-1 bg-slate-200" />หรือวาง JSON<span className="h-px flex-1 bg-slate-200" /></div>
-        <label htmlFor="peak-json" className="block text-[12px] font-medium text-slate-700">ข้อมูล JSON</label>
-        <textarea
-          ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setError(''); }}
-          spellCheck={false} rows={8} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error peak-json-help' : 'peak-json-help'}
-          className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[12px] leading-5 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100" />
-        <p id="peak-json-help" className="mt-1.5 text-[11px] leading-4 text-slate-500">ระบบเก็บเฉพาะช่องข้อมูลที่ตรวจสอบแล้ว และไม่ส่งไฟล์ไปยังเซิร์ฟเวอร์</p>
+        {preview ? <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-slate-50 px-4 py-3 text-[12px] sm:grid-cols-4" aria-label="ข้อมูลก่อนเปิด">
+          <div className="col-span-2 sm:col-span-1"><dt className="text-slate-500">กิจการ</dt><dd className="mt-0.5 truncate font-medium text-slate-900" title={preview.company}>{preview.company}</dd></div>
+          <div><dt className="text-slate-500">รูปแบบ</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.version}</dd></div>
+          <div><dt className="text-slate-500">ตรวจเมื่อ</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.capturedAt}</dd></div>
+          <div><dt className="text-slate-500">แหล่งข้อมูล</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.sources}</dd></div>
+        </dl> : null}
+        <details className="group mt-4 border-t border-slate-200 pt-3">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center text-[12px] font-medium text-slate-600 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden">ตัวเลือกขั้นสูง: วางข้อมูล JSON</summary>
+          <label htmlFor="peak-json" className="block text-[12px] font-medium text-slate-700">ข้อมูล JSON</label>
+          <textarea
+            ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setError(''); }}
+            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error peak-json-help' : 'peak-json-help'}
+            className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[12px] leading-5 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+          <p id="peak-json-help" className="mt-1.5 text-[12px] leading-5 text-slate-500">ใช้เมื่อได้รับข้อมูล JSON ที่ Codex ตรวจแล้วเท่านั้น</p>
+        </details>
         {error ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{error}</p> : null}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
-          <Button className="w-full sm:w-auto" variant="primary" disabled={!draft.trim()} onClick={commit}>ใช้ข้อมูลนี้</Button>
+          <Button className="w-full sm:w-auto" variant="primary" disabled={!draft.trim()} onClick={commit}>ตรวจสอบและเปิดข้อมูล</Button>
         </div>
       </div>
     </div>, document.body
@@ -381,25 +421,25 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
         <div className="bg-blue-50/60 px-4 py-4 min-[720px]:border-r min-[720px]:border-slate-200 min-[720px]:px-5 min-[900px]:py-5">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-[12px] font-medium text-slate-600">{data.period}</p>
-            <span className="rounded-md border border-slate-200 bg-white/80 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">{data.periodState}</span>
+            <span className="rounded-md border border-slate-200 bg-white/80 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">{data.periodState}</span>
           </div>
           <div className="mt-1 flex items-baseline gap-2">
             <p className={cx('text-[30px] font-semibold leading-none tracking-[-0.025em] tabular-nums', data.profitValue > 0 ? 'text-blue-700' : data.profitValue < 0 ? 'text-amber-700' : 'text-slate-900')}>{data.profit}</p>
           </div>
-          <p className="mt-2 text-[11.5px] text-slate-600">
+          <p className="mt-2 text-[12px] text-slate-600">
             {currentStatus}เดือนล่าสุด
           </p>
-          {data.change ? <p className="mt-3 border-t border-blue-100 pt-3 text-[11.5px] text-slate-600">
+          {data.change ? <p className="mt-3 border-t border-blue-100 pt-3 text-[12px] text-slate-600">
             {data.changeLabel ?? 'เทียบเดือนก่อน'} <strong className={cx('ml-1 font-semibold tabular-nums', data.changePositive ? 'text-blue-700' : 'text-amber-700')}>{data.change}</strong>
           </p> : null}
           <p className="mt-3 max-w-[34ch] text-[12px] leading-5 text-slate-700">{data.interpretation}</p>
           <dl className="mt-4 grid grid-cols-2 gap-4 border-t border-blue-100 pt-3">
             <div>
-              <dt className="text-[11px] text-slate-500">รายได้</dt>
+              <dt className="text-[12px] text-slate-500">รายได้</dt>
               <dd className="text-[14px] font-semibold tabular-nums text-slate-900">{data.revenue}</dd>
             </div>
             <div>
-              <dt className="text-[11px] text-slate-500">ค่าใช้จ่าย</dt>
+              <dt className="text-[12px] text-slate-500">ค่าใช้จ่าย</dt>
               <dd className="text-[14px] font-semibold tabular-nums text-slate-900">{data.expense}</dd>
             </div>
           </dl>
@@ -461,7 +501,7 @@ function PanelLineItem({ line, className }: {line: PanelLine;className?: string;
     <li className={cx('grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-4 py-3 sm:flex sm:flex-wrap sm:gap-2 sm:py-2', className)}>
       <div className="min-w-0 flex-1">
         <p className="line-clamp-2 text-[13px] leading-5 text-slate-900 sm:truncate sm:text-[12.5px] sm:leading-normal">{line.left}</p>
-        {line.sub ? <p className={cx('line-clamp-2 text-[11.5px] leading-4 sm:text-[11px]', line.tone === 'bad' ? 'text-rose-600' : line.tone === 'warn' ? 'text-amber-700' : 'text-slate-500')}>{line.sub}</p> : null}
+        {line.sub ? <p className={cx('line-clamp-2 text-[12px] leading-4', line.tone === 'bad' ? 'text-rose-600' : line.tone === 'warn' ? 'text-amber-700' : 'text-slate-500')}>{line.sub}</p> : null}
       </div>
       {line.right ? <span className={cx('whitespace-nowrap text-[12.5px] font-medium tabular-nums', line.tone === 'bad' ? 'text-rose-700' : line.tone === 'warn' ? 'text-amber-700' : 'text-slate-900')}>{line.right}</span> : null}
       {line.status ? <Badge value={line.status} /> : null}
@@ -525,7 +565,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
               {p.rows.map(([label, value, strong]) => <Row key={label} label={label} value={value} strong={strong} />)}
             </dl> :
         null}
-          {p.note ? <p className="border-t border-slate-200 px-4 py-2 text-[11px] text-slate-500">{p.note}</p> : null}
+          {p.note ? <p className="border-t border-slate-200 px-4 py-2 text-[12px] leading-5 text-slate-500">{p.note}</p> : null}
         </Card>
       )}
     </div>);
