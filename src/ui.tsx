@@ -205,17 +205,17 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
 }
 
 function peakImportError(value: unknown): string {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ไฟล์นี้ไม่มีโครงสร้างข้อมูล PEAK กรุณาเลือกไฟล์ที่ Codex ตรวจแล้ว';
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ไม่ใช่ไฟล์ PEAK ที่รองรับ';
   const snapshot = value as Record<string, unknown>;
-  if (snapshot.schemaVersion !== 3) return 'รองรับเฉพาะไฟล์ PEAK รูปแบบ v3 กรุณาสร้างไฟล์ใหม่แล้วลองอีกครั้ง';
-  if (snapshot.source !== 'PEAK') return 'ไม่พบแหล่งข้อมูล PEAK ในไฟล์ กรุณาตรวจว่าเลือกไฟล์ถูกชุด';
+  if (snapshot.schemaVersion !== 3) return 'รองรับเฉพาะ PEAK v3';
+  if (snapshot.source !== 'PEAK') return 'ไม่พบแหล่งข้อมูล PEAK';
   if (snapshot.currency !== 'THB') return 'ไฟล์ต้องใช้สกุลเงินบาท (THB)';
-  if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim()) return 'ไม่พบชื่อกิจการ กรุณาสร้างไฟล์ใหม่จากบัญชี PEAK ที่ต้องการ';
-  if (typeof snapshot.asOf !== 'string' || typeof snapshot.capturedAt !== 'string') return 'ไม่พบวันที่ตรวจข้อมูล กรุณาสร้างไฟล์ใหม่แล้วลองอีกครั้ง';
+  if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim()) return 'ไม่พบชื่อกิจการ';
+  if (typeof snapshot.asOf !== 'string' || typeof snapshot.capturedAt !== 'string') return 'ไม่พบวันที่ตรวจข้อมูล';
   const required = ['ytd', 'income', 'expense', 'taxes', 'financialPosition', 'cashChannels', 'sources'];
   const missing = required.filter((key) => !snapshot[key]);
-  if (missing.length) return `ข้อมูลไม่ครบ ${missing.length} ส่วน กรุณาสร้างไฟล์ใหม่แล้วลองอีกครั้ง`;
-  return 'ตัวเลขหรือรายละเอียดภายในไม่ผ่านการตรวจสอบ กรุณาสร้างไฟล์ใหม่จาก PEAK แล้วลองอีกครั้ง';
+  if (missing.length) return `ข้อมูลไม่ครบ ${missing.length} ส่วน`;
+  return 'ข้อมูลไม่ผ่านการตรวจสอบ';
 }
 
 export function JsonImportDialog({ open, onImport, onClose }: {
@@ -293,7 +293,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   const readFile = async (file?: File) => {
     if (!file) return;
     if (file.size > 1_000_000) {
-      setError('ไฟล์ใหญ่เกิน 1 MB กรุณาใช้ snapshot ที่มีเฉพาะข้อมูลตามแบบ');
+      setError('ไฟล์เกิน 1 MB');
       setFileName('');
       return;
     }
@@ -303,7 +303,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
       setFileName(file.name);
       setError('');
     } catch {
-      setError('อ่านไฟล์ไม่ได้ กรุณาเลือกไฟล์ JSON ใหม่');
+      setError('อ่านไฟล์ไม่ได้');
       setFileName('');
     }
   };
@@ -320,7 +320,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
       }
       onClose();
     } catch {
-      setError('อ่านข้อมูลในไฟล์ไม่ได้ กรุณาเลือกไฟล์ใหม่ หรือเปิดตัวเลือกขั้นสูงเพื่อตรวจรูปแบบ JSON');
+      setError('JSON ไม่ถูกต้อง');
     }
   };
   return createPortal(
@@ -329,14 +329,14 @@ export function JsonImportDialog({ open, onImport, onClose }: {
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
-            <h2 id="json-import-title" className="text-[18px] font-semibold tracking-[-0.02em] text-slate-950">เปิดไฟล์ข้อมูล PEAK</h2>
-            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">ระบบจะตรวจไฟล์ก่อนเปิด ข้อมูลอยู่เฉพาะแท็บนี้และลบเมื่อปิดแท็บ</p>
+            <h2 id="json-import-title" className="text-[18px] font-semibold tracking-[-0.02em] text-slate-950">เปิดข้อมูล PEAK</h2>
+            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">อ่านอย่างเดียว · อยู่ในแท็บนี้</p>
           </div>
           <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"><XIcon className="h-4 w-4" /></button>
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={UploadIcon}>เลือกไฟล์ข้อมูล PEAK</Button>
-          <span className="min-w-0 truncate text-[12px] text-slate-500">{fileName || 'รูปแบบ v3 · ไม่เกิน 1 MB'}</span>
+          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={UploadIcon}>เลือกไฟล์</Button>
+          <span className="min-w-0 truncate text-[12px] text-slate-500">{fileName || 'JSON v3 · สูงสุด 1 MB'}</span>
           <input
             ref={fileRef} type="file" accept="application/json,.json" className="sr-only"
             aria-hidden="true" tabIndex={-1}
@@ -349,18 +349,17 @@ export function JsonImportDialog({ open, onImport, onClose }: {
           <div><dt className="text-slate-500">แหล่งข้อมูล</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.sources}</dd></div>
         </dl> : null}
         <details className="group mt-4 border-t border-slate-200 pt-3">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center text-[12px] font-medium text-slate-600 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden">ตัวเลือกขั้นสูง: วางข้อมูล JSON</summary>
-          <label htmlFor="peak-json" className="block text-[12px] font-medium text-slate-700">ข้อมูล JSON</label>
+          <summary className="flex min-h-11 cursor-pointer list-none items-center text-[12px] font-medium text-slate-600 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden">วาง JSON</summary>
+          <label htmlFor="peak-json" className="block text-[12px] font-medium text-slate-700">JSON</label>
           <textarea
             ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setError(''); }}
-            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error peak-json-help' : 'peak-json-help'}
+            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error' : undefined}
             className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[12px] leading-5 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100" />
-          <p id="peak-json-help" className="mt-1.5 text-[12px] leading-5 text-slate-500">ใช้เมื่อได้รับข้อมูล JSON ที่ Codex ตรวจแล้วเท่านั้น</p>
         </details>
         {error ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{error}</p> : null}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
-          <Button className="w-full sm:w-auto" variant="primary" disabled={!draft.trim()} onClick={commit}>ตรวจสอบและเปิดข้อมูล</Button>
+          <Button className="w-full sm:w-auto" variant="primary" disabled={!draft.trim()} onClick={commit}>เปิดข้อมูล</Button>
         </div>
       </div>
     </div>, document.body
