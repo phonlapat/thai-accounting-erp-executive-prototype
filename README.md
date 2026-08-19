@@ -10,6 +10,8 @@ The public app is **PEAK-only**. It does not display fictional invoices, balance
 
 Choose **เลือก snapshot PEAK** and load a validated schema-v3 snapshot. If there is no API connection, open PEAK, sign in, and ask Codex to perform the manual inspection and browser-local import. The read-only workspace includes Overview, Revenue, Expenses, Cash & Bank, Financial Statements, and Data Checks. The validated snapshot is kept only in the current browser tab, removed on exit or tab close, and never included in this public repository. Unknown fields are stripped before the snapshot reaches application state.
 
+Before opening, the importer shows a validation-backed review of freshness, history continuity, source coverage, captured rows, and bank evidence. Invalid pasted JSON cannot produce a ready state, and warnings remain visible in Data Checks after import.
+
 PEAK mode is source-aware: it records when each PEAK page was inspected, keeps repeated document numbers when they represent different status-history rows, and shows unresolved reconciliation differences without collapsing them into a false single total. It is still a manually captured snapshot, not a live PEAK API connection.
 
 The executive profit view supports 3, 6, and 12 months plus all imported history, up to 60 months. Long history is summarized by calendar year in the chart while the monthly statement keeps every source row. Equal-period comparisons appear only for complete, contiguous, closed windows.

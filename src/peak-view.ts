@@ -1,4 +1,5 @@
-import type { PeakBankReconciliationItem, PeakSnapshot } from './data';
+import { peakSnapshotFreshness } from './data';
+import type { PeakBankReconciliationItem, PeakSnapshot, Tone } from './data';
 
 export type PeakPeriod = '3' | '6' | '12' | 'all';
 
@@ -131,6 +132,80 @@ export function peakMonthRange(months: Array<{month: string;}>): string {
 export function peakYearTH(asOf: string): string {
   const year = Number(asOf.slice(0, 4));
   return Number.isInteger(year) && year > 0 ? String(year + 543) : '—';
+}
+
+export interface PeakSnapshotAssurance {
+  status: Extract<Tone, 'ok' | 'warn' | 'bad'>;
+  label: string;
+  reason: string;
+  freshness: ReturnType<typeof peakSnapshotFreshness>;
+  historyCount: number;
+  historyRange: string;
+  missingMonths: number;
+  recordCount: number;
+  sourceCount: number;
+  agingSources: number;
+  staleSources: number;
+  findingCount: number;
+  highRiskFindings: number;
+  fullBankAccounts: number;
+  sampleBankAccounts: number;
+  bankCoverageLabel: string;
+  bankItemCount: number;
+}
+
+/** Summarize objective snapshot coverage without turning missing evidence into a score. */
+export function peakSnapshotAssurance(snapshot: PeakSnapshot, now = Date.now()): PeakSnapshotAssurance {
+  const months = [...snapshot.monthlyPL].sort((left, right) => left.month.localeCompare(right.month));
+  const missingMonths = months.slice(1).reduce((sum, item, index) => {
+    const current = monthIndex(item.month);
+    const previous = monthIndex(months[index].month);
+    return current === undefined || previous === undefined ? sum : sum + Math.max(0, current - previous - 1);
+  }, 0);
+  const sourceFreshness = snapshot.sources.map((source) => peakSnapshotFreshness(source.asOf, now));
+  const agingSources = sourceFreshness.filter((item) => item.status === 'aging').length;
+  const staleSources = sourceFreshness.filter((item) => item.status === 'stale').length;
+  const fullBankAccounts = (snapshot.bankReconciliation ?? []).filter((group) => group.coverage === 'full').length;
+  const sampleBankAccounts = (snapshot.bankReconciliation ?? []).filter((group) => group.coverage === 'sample').length;
+  const bankCoverageLabel = [
+    fullBankAccounts ? `${fullBankAccounts} ครบ` : '',
+    sampleBankAccounts ? `${sampleBankAccounts} ตัวอย่าง` : ''
+  ].filter(Boolean).join(' · ');
+  const bankItemCount = (snapshot.bankReconciliation ?? []).reduce((sum, group) => sum + group.items.length, 0);
+  const freshness = peakSnapshotFreshness(snapshot.asOf, now);
+  const highRiskFindings = snapshot.qualityFindings.filter((finding) => finding.severity === 'bad').length;
+  const findingCount = snapshot.qualityFindings.length;
+  const status: PeakSnapshotAssurance['status'] = highRiskFindings > 0 || freshness.status === 'stale'
+    ? 'bad'
+    : findingCount > 0 || freshness.status === 'aging' || missingMonths > 0 || agingSources > 0 || staleSources > 0 || sampleBankAccounts > 0
+      ? 'warn'
+      : 'ok';
+  const reason = highRiskFindings > 0 ? `ความเสี่ยงสูง ${highRiskFindings} จุด`
+    : freshness.status !== 'fresh' ? freshness.label
+      : findingCount > 0 ? `ต้องตรวจ ${findingCount} จุด`
+        : missingMonths > 0 ? `ประวัติขาด ${missingMonths} เดือน`
+          : staleSources > 0 || agingSources > 0 ? `แหล่งข้อมูลช้า ${staleSources + agingSources} หน้า`
+            : sampleBankAccounts > 0 ? `หลักฐานธนาคารบางส่วน ${sampleBankAccounts} บัญชี`
+              : 'โครงสร้างและตัวเลขผ่านการตรวจ';
+  return {
+    status,
+    label: status === 'ok' ? 'พร้อมเปิด' : status === 'bad' ? 'เปิดได้ · เสี่ยงสูง' : 'เปิดได้ · ควรตรวจ',
+    reason,
+    freshness,
+    historyCount: months.length,
+    historyRange: peakMonthRange(months),
+    missingMonths,
+    recordCount: snapshot.recentIncomeRows.length + snapshot.recentExpenseRows.length,
+    sourceCount: snapshot.sources.length,
+    agingSources,
+    staleSources,
+    findingCount,
+    highRiskFindings,
+    fullBankAccounts,
+    sampleBankAccounts,
+    bankCoverageLabel,
+    bankItemCount
+  };
 }
 
 export function peakCashReconciliation(snapshot: PeakSnapshot) {

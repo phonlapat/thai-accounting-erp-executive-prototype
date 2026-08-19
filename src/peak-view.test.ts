@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PeakSnapshot } from './data';
-import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakYearTH, selectPeakMonths } from './peak-view';
+import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakSnapshotAssurance, peakYearTH, selectPeakMonths } from './peak-view';
 
 describe('PEAK executive period view', () => {
   const months = [
@@ -85,6 +85,53 @@ describe('PEAK executive period view', () => {
     });
     expect(peakProfitSeries(history.slice(0, 12)).grain).toBe('month');
     expect(history).toEqual(original);
+  });
+
+  it('summarizes snapshot freshness and coverage without inventing a score', () => {
+    const now = Date.parse('2026-08-20T03:00:00+07:00');
+    const snapshot = {
+      asOf: '2026-08-20T02:00:00+07:00',
+      monthlyPL: [{ month: '2026-06' }, { month: '2026-07' }, { month: '2026-08' }],
+      recentIncomeRows: [{ id: 'income' }], recentExpenseRows: [{ id: 'expense' }],
+      sources: [
+        { key: 'income', asOf: '2026-08-20T02:00:00+07:00' },
+        { key: 'expense', asOf: '2026-08-20T01:00:00+07:00' },
+        { key: 'finance', asOf: '2026-08-20T00:00:00+07:00' }
+      ],
+      qualityFindings: [],
+      bankReconciliation: [{ accountId: 'bank', coverage: 'full', items: [{ id: 'bank-item' }] }]
+    } as unknown as PeakSnapshot;
+
+    expect(peakSnapshotAssurance(snapshot, now)).toMatchObject({
+      status: 'ok', label: 'พร้อมเปิด', historyCount: 3, historyRange: 'มิ.ย.–ส.ค. 69',
+      missingMonths: 0, recordCount: 2, sourceCount: 3, agingSources: 0, staleSources: 0,
+      fullBankAccounts: 1, sampleBankAccounts: 0, bankCoverageLabel: '1 ครบ', bankItemCount: 1
+    });
+  });
+
+  it('flags history gaps, stale sources, partial evidence, and high-risk findings explicitly', () => {
+    const now = Date.parse('2026-08-20T03:00:00+07:00');
+    const snapshot = {
+      asOf: '2026-08-20T02:00:00+07:00',
+      monthlyPL: [{ month: '2026-05' }, { month: '2026-08' }],
+      recentIncomeRows: [], recentExpenseRows: [],
+      sources: [
+        { key: 'income', asOf: '2026-08-20T02:00:00+07:00' },
+        { key: 'expense', asOf: '2026-08-18T02:00:00+07:00' },
+        { key: 'finance', asOf: '2026-08-16T02:00:00+07:00' }
+      ],
+      qualityFindings: [],
+      bankReconciliation: [{ accountId: 'bank', coverage: 'sample', items: [] }]
+    } as unknown as PeakSnapshot;
+    expect(peakSnapshotAssurance(snapshot, now)).toMatchObject({
+      status: 'warn', label: 'เปิดได้ · ควรตรวจ', reason: 'ประวัติขาด 2 เดือน',
+      missingMonths: 2, agingSources: 1, staleSources: 1, sampleBankAccounts: 1, bankCoverageLabel: '1 ตัวอย่าง'
+    });
+
+    snapshot.qualityFindings = [{ key: 'cash', severity: 'bad', title: 'ยอดต่าง', detail: 'ตรวจสอบ' }];
+    expect(peakSnapshotAssurance(snapshot, now)).toMatchObject({
+      status: 'bad', label: 'เปิดได้ · เสี่ยงสูง', reason: 'ความเสี่ยงสูง 1 จุด', highRiskFindings: 1
+    });
   });
 
   it('only requires cash reconciliation when the source evidence does', () => {
