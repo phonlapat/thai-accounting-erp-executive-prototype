@@ -1,3 +1,5 @@
+import type { PeakSnapshot } from './data';
+
 export type PeakPeriod = '3' | '6' | 'all';
 
 export const PEAK_PERIOD_KEY = 'siam-erp-peak-period-v1';
@@ -48,4 +50,14 @@ export function peakMonthRange(months: Array<{month: string;}>): string {
 export function peakYearTH(asOf: string): string {
   const year = Number(asOf.slice(0, 4));
   return Number.isInteger(year) && year > 0 ? String(year + 543) : '—';
+}
+
+export function peakCashReconciliation(snapshot: PeakSnapshot) {
+  const finding = snapshot.qualityFindings.find((item) => item.key === 'cash-totals');
+  const difference = snapshot.cashChannels.total - snapshot.financialPosition.cashAndEquivalents;
+  return {
+    difference,
+    finding,
+    required: snapshot.cashChannels.reconciliationRequired || Math.abs(difference) > 0.02 || Boolean(finding)
+  };
 }

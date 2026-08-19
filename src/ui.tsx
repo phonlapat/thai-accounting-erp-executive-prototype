@@ -657,16 +657,20 @@ function fmt(v: string | number | undefined, f: CellFmt = 'text') {
 }
 
 export function DataTable({
-  cols, rows, filters = [], actions, empty = 'ไม่พบข้อมูลตามเงื่อนไขที่เลือก', initialQuery = ''
+  cols, rows, filters = [], actions, empty = 'ไม่พบข้อมูลตามเงื่อนไขที่เลือก', initialQuery = '', initialFilters = {}, onViewChange
 
 
 
 
 
 
-}: {cols: Col[];rows: RowData[];filters?: FilterSpec[];actions?: (r: RowData) => RowAction[];empty?: string;initialQuery?: string;}) {
+}: {
+  cols: Col[];rows: RowData[];filters?: FilterSpec[];actions?: (r: RowData) => RowAction[];empty?: string;
+  initialQuery?: string;initialFilters?: Record<string, string>;
+  onViewChange?: (query: string, filters: Record<string, string>) => void;
+}) {
   const [q, setQ] = useState(initialQuery);
-  const [sel, setSel] = useState<Record<string, string>>({});
+  const [sel, setSel] = useState<Record<string, string>>(initialFilters);
   const [sort, setSort] = useState<{key: string;dir: 1 | -1;} | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => window.matchMedia('(max-width: 767px)').matches ? 8 : 12);
@@ -679,6 +683,23 @@ export function DataTable({
   }, []);
 
   useEffect(() => setQ(initialQuery), [initialQuery]);
+  useEffect(() => setSel(initialFilters), [initialFilters]);
+
+  const changeQuery = (value: string) => {
+    setQ(value);
+    onViewChange?.(value, sel);
+  };
+  const changeFilter = (key: string, value: string) => {
+    const next = { ...sel, [key]: value };
+    if (!value) delete next[key];
+    setSel(next);
+    onViewChange?.(q, next);
+  };
+  const clearView = () => {
+    setQ('');
+    setSel({});
+    onViewChange?.('', {});
+  };
 
   const view = useMemo(() => {
     let out = rows.filter((r) => {
@@ -731,7 +752,7 @@ export function DataTable({
             inputMode="search"
             autoComplete="off"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => changeQuery(e.target.value)}
             placeholder="ค้นหา…"
             className="h-11 w-full rounded-lg border border-slate-300 pl-8 pr-2.5 text-base text-slate-900 placeholder:text-slate-500 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 sm:h-10 sm:text-[13px]" />
 
@@ -741,7 +762,7 @@ export function DataTable({
             <span className="sr-only">{f.label}</span>
             <select
             value={sel[f.key] ?? ''}
-            onChange={(e) => setSel((s) => ({ ...s, [f.key]: e.target.value }))}
+            onChange={(e) => changeFilter(f.key, e.target.value)}
             className="h-11 min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 text-base text-slate-700 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 sm:h-10 sm:text-[12.5px]">
 
               <option value="">{f.label}ทั้งหมด</option>
@@ -750,7 +771,7 @@ export function DataTable({
           </label>
         )}
         {filtering ?
-        <button type="button" onClick={() => { setQ(''); setSel({}); }} className="min-h-10 rounded-lg px-2.5 text-[12px] font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+        <button type="button" onClick={clearView} className="min-h-10 rounded-lg px-2.5 text-[12px] font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
             ล้าง
           </button> : null}
         <span className="ml-auto whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-medium text-slate-600" aria-live="polite">{view.length} รายการ</span>
@@ -780,7 +801,7 @@ export function DataTable({
         </ul> : <div className="px-4 py-10 text-center">
           <SearchIcon className="mx-auto h-5 w-5 text-slate-400" />
           <p className="mt-2 text-[13px] font-medium text-slate-700">{empty}</p>
-          {filtering ? <Button className="mt-4" onClick={() => { setQ(''); setSel({}); }}>ล้างตัวกรอง</Button> : null}
+          {filtering ? <Button className="mt-4" onClick={clearView}>ล้างตัวกรอง</Button> : null}
         </div>}
       </div>
 
