@@ -6,6 +6,7 @@ Siam ERP is a public, static executive-review prototype. The repository and depl
 
 - A validated PEAK snapshot is parsed locally, rebuilt from an explicit field allowlist, and kept only in the current browser tab.
 - Private snapshot data is removed on exit, tab close, or after 15 minutes without activity.
+- An uncaught render failure enters one privacy-safe recovery boundary. It logs no error object or snapshot value, and it reloads after cleanup only when every scoped private/legacy key was successfully removed.
 - Persistent freshness history is limited to the source data date and inspection time. It excludes company identity, balances, documents, counterparties, and evidence rows.
 - The public zero-data state must never substitute demo values for missing or private data.
 

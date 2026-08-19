@@ -35,6 +35,7 @@ for (const [, attributes, body] of scriptTags) {
 if (/\son[a-z]+\s*=/i.test(html)) failures.push('inline event handler found in production HTML');
 if (/<(?:script|img|link)\b[^>]*(?:src|href)=["']https?:\/\//i.test(html)) failures.push('external executable or presentation asset found in production HTML');
 if (/http-equiv=["']Content-Security-Policy["']/i.test(sourceHtml)) failures.push('development HTML must not carry the production CSP');
+if (!/<div\s+id=["']root["']><\/div>/i.test(html)) failures.push('production application root is missing');
 
 if (failures.length) {
   console.error('Production security verification failed:');
