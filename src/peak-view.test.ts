@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PeakSnapshot } from './data';
-import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
+import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakYearTH, selectPeakMonths } from './peak-view';
 
 describe('PEAK executive period view', () => {
   const months = [
@@ -24,7 +24,9 @@ describe('PEAK executive period view', () => {
     expect(availablePeakPeriods(2)).toEqual(['all']);
     expect(availablePeakPeriods(5)).toEqual(['3', 'all']);
     expect(availablePeakPeriods(8)).toEqual(['3', '6', 'all']);
+    expect(availablePeakPeriods(13)).toEqual(['3', '6', '12', 'all']);
     expect(effectivePeakPeriod('6', 5)).toBe('all');
+    expect(effectivePeakPeriod('12', 12)).toBe('all');
     expect(effectivePeakPeriod('3', 5)).toBe('3');
   });
 
@@ -37,8 +39,52 @@ describe('PEAK executive period view', () => {
 
   it('rejects unknown stored preferences', () => {
     expect(isPeakPeriod('3')).toBe(true);
-    expect(isPeakPeriod('12')).toBe(false);
+    expect(isPeakPeriod('12')).toBe(true);
+    expect(isPeakPeriod('24')).toBe(false);
     expect(isPeakPeriod(null)).toBe(false);
+  });
+
+  it('compares only equal contiguous closed periods', () => {
+    const history = Array.from({ length: 24 }, (_, index) => {
+      const date = new Date(Date.UTC(2024, 8 + index, 1));
+      return {
+        month: date.toISOString().slice(0, 7),
+        profit: index < 12 ? 10 : 15
+      };
+    });
+    expect(peakPeriodComparison(history, '12')).toEqual({
+      current: 180,
+      previous: 120,
+      difference: 60,
+      changePct: 50
+    });
+    expect(peakPeriodComparison(history, 'all')).toBeUndefined();
+
+    const withGap = [{ month: '2024-08', profit: 10 }, ...history.filter((item) => item.month !== '2025-09')];
+    expect(peakPeriodComparison(withGap, '12')).toBeUndefined();
+    expect(peakPeriodComparison(history.map((item, index) => index === 23 ? { ...item, partial: true } : item), '12')).toBeUndefined();
+  });
+
+  it('keeps short views monthly and aggregates long history by calendar year without mutation', () => {
+    const history = Array.from({ length: 14 }, (_, index) => {
+      const date = new Date(Date.UTC(2025, 6 + index, 1));
+      return {
+        month: date.toISOString().slice(0, 7),
+        profit: index < 6 ? 1 : 2,
+        ...(index === 13 ? { partial: true } : {})
+      };
+    }).reverse();
+    const original = structuredClone(history);
+    const series = peakProfitSeries(history);
+    expect(series).toEqual({
+      grain: 'year',
+      points: [
+        { key: '2025', value: 6, partial: true, monthCount: 6 },
+        { key: '2026', value: 16, partial: true, monthCount: 8 }
+      ]
+    });
+    expect(peakProfitSeries(history.slice(0, 12)).grain).toBe('month');
+    expect(history).toEqual(original);
   });
 
   it('only requires cash reconciliation when the source evidence does', () => {

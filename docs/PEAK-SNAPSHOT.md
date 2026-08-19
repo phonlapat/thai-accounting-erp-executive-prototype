@@ -2,6 +2,17 @@
 
 Siam ERP opens an allowlisted, read-only PEAK snapshot in the current browser tab. The file is never uploaded by the application and must never be committed to this repository.
 
+## Reporting history
+
+`monthlyPL` accepts 2–60 unique monthly rows. This supports the five-year reporting range available in PEAK while keeping the imported snapshot bounded.
+
+- The 3-, 6-, and 12-month views keep exact monthly marks.
+- A view longer than 12 months aggregates chart marks by calendar year. The monthly statement table remains unaggregated.
+- Period comparison appears only when both the selected window and the immediately preceding equal-length window are complete, contiguous, and closed. A missing or open month suppresses the comparison instead of being treated as zero.
+- Partial calendar years show the number of included months. They are not presented as full-year results.
+
+The dashboard never annualizes a partial year or infers an absent month.
+
 ## Bank reconciliation evidence
 
 Each `financeAccounts` row always requires `id`, `type`, `name`, and `balance`. A bank row may also include:
