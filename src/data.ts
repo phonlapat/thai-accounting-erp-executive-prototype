@@ -118,15 +118,20 @@ const finite = (value: unknown): value is number => typeof value === 'number' &&
 const nonNegative = (value: unknown) => finite(value) && value >= 0;
 const wholeNonNegative = (value: unknown) => Number.isInteger(value) && Number(value) >= 0;
 const near = (left: number, right: number) => Math.abs(left - right) <= 0.02;
+const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 /** Validate imported PEAK snapshots before they reach application state. */
-export function isPeakSnapshot(value: unknown): value is PeakSnapshot {
+export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakSnapshot {
   if (!value || typeof value !== 'object') return false;
   const snapshot = value as Partial<PeakSnapshot>;
   if (snapshot.schemaVersion !== 3 || snapshot.source !== 'PEAK' || snapshot.currency !== 'THB') return false;
   if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim() || snapshot.companyName.length > 120) return false;
   if (typeof snapshot.asOf !== 'string' || !Number.isFinite(Date.parse(snapshot.asOf))) return false;
   if (typeof snapshot.capturedAt !== 'string' || !Number.isFinite(Date.parse(snapshot.capturedAt))) return false;
+  const asOfTime = Date.parse(snapshot.asOf);
+  const capturedTime = Date.parse(snapshot.capturedAt);
+  if (asOfTime > now + MAX_CLOCK_SKEW_MS || capturedTime > now + MAX_CLOCK_SKEW_MS) return false;
+  if (asOfTime > capturedTime + MAX_CLOCK_SKEW_MS) return false;
   if (!snapshot.ytd || !snapshot.income || !snapshot.expense || !snapshot.taxes || !snapshot.salesMix ||
     !snapshot.financialPosition || !snapshot.cashChannels || !snapshot.insights) return false;
   const nonNegativeMeasures = [
@@ -274,9 +279,9 @@ export function sanitizePeakSnapshot(value: unknown): PeakSnapshot | undefined {
   };
 }
 
-export function peakSnapshotFreshness(capturedAt: string, now = Date.now()): PeakFreshness {
-  const captured = Date.parse(capturedAt);
-  const ageHours = Number.isFinite(captured) ? Math.max(0, (now - captured) / 3_600_000) : Number.POSITIVE_INFINITY;
+export function peakSnapshotFreshness(dataAsOf: string, now = Date.now()): PeakFreshness {
+  const observed = Date.parse(dataAsOf);
+  const ageHours = Number.isFinite(observed) ? Math.max(0, (now - observed) / 3_600_000) : Number.POSITIVE_INFINITY;
   if (ageHours <= 24) return { status: 'fresh', ageHours, label: 'อัปเดตภายใน 24 ชม.' };
   const days = Math.max(1, Math.floor(ageHours / 24));
   if (ageHours <= 72) return { status: 'aging', ageHours, label: `ข้อมูล ${days} วันก่อน` };
@@ -299,6 +304,12 @@ export function dateTH(iso?: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return iso ?? '—';
   return `${d} ${TM[m - 1]} ${String(y + 543).slice(2)}`;
+}
+export function dateTimeTH(iso?: string): string {
+  if (!iso || !Number.isFinite(Date.parse(iso))) return '—';
+  return new Intl.DateTimeFormat('th-TH', {
+    day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok'
+  }).format(new Date(iso)).replace(/ (\d{2}:\d{2})$/, ' · $1');
 }
 export const monthTH = (m: string) => `${TMF[Number(m.slice(5, 7)) - 1]} ${Number(m.slice(0, 4)) + 543}`;
 export const daysLate = (due: string) => Math.floor((Date.parse(TODAY) - Date.parse(due)) / 864e5);

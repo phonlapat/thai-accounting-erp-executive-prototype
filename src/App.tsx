@@ -5,7 +5,7 @@ import {
   LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon, UploadIcon, UsersIcon, WalletIcon, XIcon } from
 'lucide-react';
 import {
-  MONTH, STATUS, TODAY, WH, baseOf, dateTH, docStatus, dueOf, monthTH, netOf, num, payTotals, peakSnapshotFreshness, thb, vatOf, whtOf } from
+  MONTH, STATUS, TODAY, WH, baseOf, dateTH, dateTimeTH, docStatus, dueOf, monthTH, netOf, num, payTotals, peakSnapshotFreshness, thb, vatOf, whtOf } from
 './data';
 import type { AppData, PeakSnapshot, Tone } from './data';
 import {
@@ -859,9 +859,7 @@ const FINANCE: Mod[] = [
 
 
 const peakOf = (data: AppData) => data.peakSnapshot as PeakSnapshot;
-const peakStamp = (iso: string) => new Intl.DateTimeFormat('th-TH', {
-  day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok'
-}).format(new Date(iso)).replace(/ (\d{2}:\d{2})$/, ' · $1');
+const peakStamp = dateTimeTH;
 const PEAK_RECORD_COLS: Col[] = [
   { key: 'documentNo', header: 'เลขที่', fmt: 'mono' },
   { key: 'party', header: 'คู่ค้า' },
@@ -1137,8 +1135,11 @@ function Workbench() {
   const { data, actions, toasts, storageIssue, lastPeakMeta } = useStore(actor);
   const peakSnapshot = data.peakSnapshot;
   const peakMode = Boolean(peakSnapshot);
-  const peakFreshness = peakSnapshot ? peakSnapshotFreshness(peakSnapshot.capturedAt) : undefined;
-  const lastPeakFreshness = lastPeakMeta ? peakSnapshotFreshness(lastPeakMeta.capturedAt) : undefined;
+  const peakFreshness = peakSnapshot ? peakSnapshotFreshness(peakSnapshot.asOf) : undefined;
+  const lastPeakFreshness = lastPeakMeta ? peakSnapshotFreshness(lastPeakMeta.asOf) : undefined;
+  const storageIssueText = storageIssue === 'private-save' ? 'รีเฟรชแล้วข้อมูลจะหาย' :
+    storageIssue === 'private-clear' ? 'ล้างข้อมูลเดิมไม่ได้ · ปิดแท็บนี้' :
+      storageIssue === 'history' ? 'เบราว์เซอร์จำเวลาล่าสุดไม่ได้' : undefined;
   const availableModules = PEAK_MODULES;
   const availableGroups = PEAK_GROUPS;
   const [active, setActive] = useState(() => moduleFromLocation(availableModules));
@@ -1253,10 +1254,13 @@ function Workbench() {
 
             <dl className="mt-10 max-w-xl divide-y divide-slate-800 border-y border-slate-800 sm:mt-12">
               <div className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
-                <dt className="flex items-center gap-2 text-[13px] text-slate-400"><HistoryIcon className="h-4 w-4" />ตรวจ PEAK ล่าสุด</dt>
-                <dd className="text-[14px] font-semibold text-white">
-                  {lastPeakMeta ? peakStamp(lastPeakMeta.capturedAt) : 'ยังไม่เคยตรวจ'}
-                  {lastPeakFreshness ? <span className={cx('ml-2 text-[12px] font-medium', lastPeakFreshness.status === 'fresh' ? 'text-emerald-300' : lastPeakFreshness.status === 'aging' ? 'text-amber-300' : 'text-rose-300')}>· {lastPeakFreshness.label}</span> : null}
+                <dt className="flex items-center gap-2 text-[13px] text-slate-400"><HistoryIcon className="h-4 w-4" />ข้อมูล PEAK ล่าสุด</dt>
+                <dd className="text-[14px] font-semibold text-white sm:text-right">
+                  {lastPeakMeta ? <>
+                    <span>{dateTH(lastPeakMeta.asOf.slice(0, 10))}</span>
+                    {lastPeakFreshness ? <span className={cx('ml-2 text-[12px] font-medium', lastPeakFreshness.status === 'fresh' ? 'text-emerald-300' : lastPeakFreshness.status === 'aging' ? 'text-amber-300' : 'text-rose-300')}>· {lastPeakFreshness.label}</span> : null}
+                    <span className="mt-0.5 block text-[11.5px] font-normal text-slate-400">ตรวจ {peakStamp(lastPeakMeta.capturedAt)}</span>
+                  </> : 'ยังไม่เคยเปิด'}
                 </dd>
               </div>
               <div className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
@@ -1274,10 +1278,13 @@ function Workbench() {
             <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
               <UploadIcon className="h-4 w-4" />เลือกไฟล์ PEAK
             </button>
-            <div className="mt-4 flex items-center gap-2 text-[12px] text-slate-500">
+            {storageIssueText ? <div className="mt-4 flex items-start gap-2 text-[12px] leading-5 text-rose-700" role="alert">
+              <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{storageIssueText}</span>
+            </div> : <div className="mt-4 flex items-center gap-2 text-[12px] text-slate-500">
               <ShieldCheckIcon className="h-4 w-4 shrink-0 text-emerald-600" />
               <span>ตัวเลขอยู่เฉพาะในแท็บนี้</span>
-            </div>
+            </div>}
             <div className="mt-6 border-t border-slate-200 pt-3">
               <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK</a>
             </div>
@@ -1368,14 +1375,14 @@ function Workbench() {
             peakFreshness.status === 'aging' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-rose-200 bg-rose-50 text-rose-900')}
           role={peakFreshness.status === 'stale' ? 'alert' : 'status'}>
           {peakFreshness.status === 'fresh' ? <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" /> : <AlertCircleIcon className="h-4 w-4 shrink-0" />}
-          <span className="min-w-0 flex-1"><strong>{peakFreshness.label}</strong> · อ่านอย่างเดียว · อยู่ในแท็บนี้</span>
+          <span className="min-w-0 flex-1"><strong>{peakFreshness.label}</strong> · ข้อมูลถึง {dateTH(peakSnapshot.asOf.slice(0, 10))} · ตรวจ {peakStamp(peakSnapshot.capturedAt)}</span>
           <button type="button" onClick={() => setConfirmSignOut(true)} className="inline-flex min-h-11 items-center px-1 font-semibold underline decoration-current/30 underline-offset-2 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">ลบข้อมูล</button>
         </div> : null}
 
         {storageIssue ?
         <div className="flex items-center gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2 text-[12px] text-rose-800 lg:px-6" role="alert">
           <AlertCircleIcon className="h-4 w-4 shrink-0" />
-          <span><strong>บันทึกไม่ได้</strong> · การเปลี่ยนแปลงจะหายเมื่อปิดหน้านี้</span>
+          <span><strong>บราว์เซอร์บันทึกไม่ได้</strong> · {storageIssueText}</span>
         </div> : null}
 
         <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 py-4 outline-none lg:px-6 lg:py-5">
@@ -1401,7 +1408,7 @@ function Workbench() {
 
         <footer className="border-t border-slate-200 px-4 py-3 text-[12px] text-slate-500 lg:px-6">
           <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-1.5">
-            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? 'บันทึกไม่ได้' : `PEAK · ตรวจเมื่อ ${peakStamp(peakSnapshot.capturedAt)}`}</span>
+            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? storageIssueText : `PEAK · ข้อมูลถึง ${dateTH(peakSnapshot.asOf.slice(0, 10))} · ตรวจ ${peakStamp(peakSnapshot.capturedAt)}`}</span>
           </div>
         </footer>
       </div>

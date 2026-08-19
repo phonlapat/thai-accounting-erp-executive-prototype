@@ -1,8 +1,8 @@
 /* Workbench UI primitives: badges, cards, KPI strip, config-driven table and panels */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangleIcon, ArrowUpDownIcon, ChevronLeftIcon, ChevronRightIcon, SearchIcon, UploadIcon, XIcon } from 'lucide-react';
-import { STATUS, dateTH, num, thb } from './data';
+import { AlertTriangleIcon, ArrowUpDownIcon, ChevronLeftIcon, ChevronRightIcon, LoaderCircleIcon, SearchIcon, UploadIcon, XIcon } from 'lucide-react';
+import { STATUS, dateTH, dateTimeTH, num, sanitizePeakSnapshot, thb } from './data';
 import type { Tone } from './data';
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -226,21 +226,28 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   const fileRef = useRef<HTMLInputElement>(null);
   const fileButtonRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
+  const openRef = useRef(open);
+  const readRequestRef = useRef(0);
+  const committingRef = useRef(false);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
   const [fileName, setFileName] = useState('');
+  const [reading, setReading] = useState(false);
+  const [committing, setCommitting] = useState(false);
   onCloseRef.current = onClose;
+  openRef.current = open;
   const preview = useMemo(() => {
     if (!draft.trim()) return undefined;
     try {
       const value = JSON.parse(draft) as unknown;
       if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
       const snapshot = value as Record<string, unknown>;
-      const capturedAt = typeof snapshot.capturedAt === 'string' && Number.isFinite(Date.parse(snapshot.capturedAt)) ? dateTH(snapshot.capturedAt.slice(0, 10)) : 'ไม่พบ';
+      const asOf = typeof snapshot.asOf === 'string' && Number.isFinite(Date.parse(snapshot.asOf)) ? dateTH(snapshot.asOf.slice(0, 10)) : 'ไม่พบ';
+      const capturedAt = typeof snapshot.capturedAt === 'string' ? dateTimeTH(snapshot.capturedAt) : 'ไม่พบ';
       return {
         company: typeof snapshot.companyName === 'string' && snapshot.companyName.trim() ? snapshot.companyName : 'ไม่พบ',
         version: snapshot.schemaVersion === undefined ? 'ไม่พบ' : `v${String(snapshot.schemaVersion)}`,
-        capturedAt,
+        asOf, capturedAt,
         sources: Array.isArray(snapshot.sources) ? `${snapshot.sources.length} แหล่ง` : 'ไม่พบ'
       };
     } catch {
@@ -250,9 +257,13 @@ export function JsonImportDialog({ open, onImport, onClose }: {
 
   useEffect(() => {
     if (!open) {
+      readRequestRef.current += 1;
+      committingRef.current = false;
       setDraft('');
       setError('');
       setFileName('');
+      setReading(false);
+      setCommitting(false);
       return;
     }
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -292,74 +303,101 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   if (!open) return null;
   const readFile = async (file?: File) => {
     if (!file) return;
+    const request = ++readRequestRef.current;
+    if (!file.name.toLocaleLowerCase('en').endsWith('.json') && file.type !== 'application/json') {
+      setError('เลือกไฟล์ .json');
+      setFileName('');
+      setDraft('');
+      return;
+    }
     if (file.size > 1_000_000) {
       setError('ไฟล์เกิน 1 MB');
       setFileName('');
+      setDraft('');
       return;
     }
+    setReading(true);
+    setDraft('');
+    setFileName(file.name);
+    setError('');
     try {
       const text = await file.text();
+      if (request !== readRequestRef.current || !openRef.current) return;
       setDraft(text);
-      setFileName(file.name);
-      setError('');
+      try {
+        const parsed = JSON.parse(text) as unknown;
+        if (!sanitizePeakSnapshot(parsed)) setError(peakImportError(parsed));
+      } catch {
+        setError('JSON ไม่ถูกต้อง');
+      }
     } catch {
+      if (request !== readRequestRef.current || !openRef.current) return;
       setError('อ่านไฟล์ไม่ได้');
       setFileName('');
+    } finally {
+      if (request === readRequestRef.current && openRef.current) setReading(false);
     }
   };
   const commit = () => {
+    if (reading || committingRef.current) return;
     if (draft.length > 1_000_000) {
       setError('ข้อมูลใหญ่เกิน 1 MB');
       return;
     }
+    committingRef.current = true;
+    setCommitting(true);
     try {
       const parsed = JSON.parse(draft) as unknown;
       if (!onImport(parsed)) {
         setError(peakImportError(parsed));
+        committingRef.current = false;
+        setCommitting(false);
         return;
       }
       onClose();
     } catch {
       setError('JSON ไม่ถูกต้อง');
+      committingRef.current = false;
+      setCommitting(false);
     }
   };
   return createPortal(
     <div className="erp-fade-in fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="json-import-title" aria-describedby="json-import-description" className="erp-dialog-in w-full max-w-xl rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] sm:p-6">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="json-import-title" aria-describedby="json-import-description" aria-busy={reading || committing} className="erp-dialog-in w-full max-w-xl rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] sm:p-6">
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
             <h2 id="json-import-title" className="text-[18px] font-semibold tracking-[-0.02em] text-slate-950">เปิดข้อมูล PEAK</h2>
-            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">อ่านอย่างเดียว · อยู่ในแท็บนี้</p>
+            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">อ่านอย่างเดียว · ไม่อัปโหลด</p>
           </div>
           <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"><XIcon className="h-4 w-4" /></button>
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={UploadIcon}>เลือกไฟล์</Button>
-          <span className="min-w-0 truncate text-[12px] text-slate-500">{fileName || 'JSON v3 · สูงสุด 1 MB'}</span>
+          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={reading ? LoaderCircleIcon : UploadIcon} disabled={reading || committing} className={reading ? '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none' : undefined}>{reading ? 'กำลังอ่าน…' : 'เลือกไฟล์'}</Button>
+          <span className="min-w-0 truncate text-[12px] text-slate-500" title={fileName || undefined}>{fileName || 'JSON v3 · สูงสุด 1 MB'}</span>
           <input
             ref={fileRef} type="file" accept="application/json,.json" className="sr-only"
             aria-hidden="true" tabIndex={-1}
             onChange={(event) => { void readFile(event.target.files?.[0]); event.currentTarget.value = ''; }} />
         </div>
         {preview ? <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-slate-50 px-4 py-3 text-[12px] sm:grid-cols-4" aria-label="ข้อมูลก่อนเปิด">
-          <div className="col-span-2 sm:col-span-1"><dt className="text-slate-500">กิจการ</dt><dd className="mt-0.5 truncate font-medium text-slate-900" title={preview.company}>{preview.company}</dd></div>
-          <div><dt className="text-slate-500">รูปแบบ</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.version}</dd></div>
-          <div><dt className="text-slate-500">ตรวจเมื่อ</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.capturedAt}</dd></div>
+          <div className="col-span-2"><dt className="text-slate-500">กิจการ</dt><dd className="mt-0.5 truncate font-medium text-slate-900" title={preview.company}>{preview.company}</dd></div>
+          <div><dt className="text-slate-500">ข้อมูลถึง</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.asOf}</dd></div>
           <div><dt className="text-slate-500">แหล่งข้อมูล</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.sources}</dd></div>
+          <div className="col-span-2"><dt className="text-slate-500">ตรวจเมื่อ</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.capturedAt} · {preview.version}</dd></div>
         </dl> : null}
         <details className="group mt-4 border-t border-slate-200 pt-3">
           <summary className="flex min-h-11 cursor-pointer list-none items-center text-[12px] font-medium text-slate-600 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden">วาง JSON</summary>
           <label htmlFor="peak-json" className="block text-[12px] font-medium text-slate-700">JSON</label>
           <textarea
             ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setError(''); }}
-            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error' : undefined}
-            className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-[12px] leading-5 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100" />
+            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error' : undefined} disabled={reading || committing}
+            className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-base leading-6 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:cursor-wait disabled:opacity-60 sm:text-[12px] sm:leading-5" />
         </details>
         {error ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{error}</p> : null}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button className="w-full sm:w-auto" onClick={onClose}>ยกเลิก</Button>
-          <Button className="w-full sm:w-auto" variant="primary" disabled={!draft.trim()} onClick={commit}>เปิดข้อมูล</Button>
+          <Button className="w-full sm:w-auto" onClick={onClose} disabled={committing}>ยกเลิก</Button>
+          <Button className={cx('w-full sm:w-auto', committing && '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none')} variant="primary" icon={committing ? LoaderCircleIcon : undefined} disabled={!draft.trim() || reading || committing || Boolean(error)} onClick={commit}>{committing ? 'กำลังเปิด…' : 'เปิดข้อมูล'}</Button>
         </div>
       </div>
     </div>, document.body

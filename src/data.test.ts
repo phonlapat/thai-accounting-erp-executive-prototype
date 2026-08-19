@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isPeakSnapshot, peakSnapshotFreshness, sanitizePeakSnapshot } from './data';
+import { dateTimeTH, isPeakSnapshot, peakSnapshotFreshness, sanitizePeakSnapshot } from './data';
 import type { PeakSnapshot } from './data';
 
 function validSnapshot(): PeakSnapshot {
@@ -85,20 +85,37 @@ describe('PEAK snapshot boundary', () => {
     input.ytd.profit = 999;
     expect(isPeakSnapshot(input)).toBe(false);
   });
+
+  it('rejects impossible source chronology and future timestamps', () => {
+    const future = validSnapshot();
+    future.asOf = '2026-08-21T17:00:00+07:00';
+    future.capturedAt = '2026-08-21T17:30:00+07:00';
+    expect(isPeakSnapshot(future, Date.parse('2026-08-20T12:00:00+07:00'))).toBe(false);
+
+    const reversed = validSnapshot();
+    reversed.asOf = '2026-08-12T18:00:00+07:00';
+    reversed.capturedAt = '2026-08-12T17:30:00+07:00';
+    expect(isPeakSnapshot(reversed, Date.parse('2026-08-20T12:00:00+07:00'))).toBe(false);
+  });
 });
 
 describe('snapshot freshness', () => {
-  const capturedAt = '2026-08-12T00:00:00.000Z';
+  const dataAsOf = '2026-08-12T00:00:00.000Z';
 
   it('marks snapshots within 24 hours as fresh', () => {
-    expect(peakSnapshotFreshness(capturedAt, Date.parse('2026-08-12T23:59:00.000Z')).status).toBe('fresh');
+    expect(peakSnapshotFreshness(dataAsOf, Date.parse('2026-08-12T23:59:00.000Z')).status).toBe('fresh');
   });
 
   it('marks snapshots between 24 and 72 hours as aging', () => {
-    expect(peakSnapshotFreshness(capturedAt, Date.parse('2026-08-14T00:00:00.000Z')).status).toBe('aging');
+    expect(peakSnapshotFreshness(dataAsOf, Date.parse('2026-08-14T00:00:00.000Z')).status).toBe('aging');
   });
 
   it('marks snapshots older than 72 hours as stale', () => {
-    expect(peakSnapshotFreshness(capturedAt, Date.parse('2026-08-16T00:00:00.000Z')).status).toBe('stale');
+    expect(peakSnapshotFreshness(dataAsOf, Date.parse('2026-08-16T00:00:00.000Z')).status).toBe('stale');
+  });
+
+  it('formats Bangkok timestamps safely', () => {
+    expect(dateTimeTH('2026-08-20T00:30:00Z')).toBe('20 ส.ค. 69 · 07:30');
+    expect(dateTimeTH('invalid')).toBe('—');
   });
 });
