@@ -55,9 +55,19 @@ export function peakYearTH(asOf: string): string {
 export function peakCashReconciliation(snapshot: PeakSnapshot) {
   const finding = snapshot.qualityFindings.find((item) => item.key === 'cash-totals');
   const difference = snapshot.cashChannels.total - snapshot.financialPosition.cashAndEquivalents;
+  const accountEvidence = snapshot.financeAccounts.filter((account) => account.type === 'bank' && account.reconciliationStatus);
+  const incompleteAccounts = accountEvidence.filter((account) => account.reconciliationStatus !== 'complete');
+  const completeAccounts = accountEvidence.filter((account) => account.reconciliationStatus === 'complete');
+  const unmatchedCountKnown = incompleteAccounts.length > 0 && incompleteAccounts.every((account) => account.unmatchedCount !== undefined);
+  const unmatchedCount = incompleteAccounts.reduce((sum, account) => sum + (account.unmatchedCount ?? 0), 0);
   return {
+    accountEvidence,
+    completeAccounts,
     difference,
     finding,
-    required: snapshot.cashChannels.reconciliationRequired || Math.abs(difference) > 0.02 || Boolean(finding)
+    incompleteAccounts,
+    unmatchedCount,
+    unmatchedCountKnown,
+    required: snapshot.cashChannels.reconciliationRequired || Math.abs(difference) > 0.02 || Boolean(finding) || incompleteAccounts.length > 0
   };
 }

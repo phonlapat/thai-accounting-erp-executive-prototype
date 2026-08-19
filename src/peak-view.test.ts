@@ -45,6 +45,7 @@ describe('PEAK executive period view', () => {
     const snapshot = {
       cashChannels: { total: 100, reconciliationRequired: false },
       financialPosition: { cashAndEquivalents: 100 },
+      financeAccounts: [],
       qualityFindings: []
     } as unknown as PeakSnapshot;
     expect(peakCashReconciliation(snapshot)).toMatchObject({ required: false, difference: 0 });
@@ -55,5 +56,36 @@ describe('PEAK executive period view', () => {
     snapshot.financialPosition.cashAndEquivalents = 100;
     snapshot.qualityFindings = [{ key: 'cash-totals', severity: 'warn', title: 'ยอดต่าง', detail: 'ตรวจช่วงวันที่' }];
     expect(peakCashReconciliation(snapshot)).toMatchObject({ required: true, difference: 0, finding: snapshot.qualityFindings[0] });
+  });
+
+  it('summarizes optional bank reconciliation work without guessing missing counts', () => {
+    const snapshot = {
+      cashChannels: { total: 100, reconciliationRequired: false },
+      financialPosition: { cashAndEquivalents: 100 },
+      financeAccounts: [
+        { id: 'cash', type: 'cash', name: 'เงินสด', balance: 10 },
+        { id: 'bank-a', type: 'bank', name: 'ธนาคาร ก', balance: 60, reconciliationStatus: 'partial', unmatchedCount: 4 },
+        { id: 'bank-b', type: 'bank', name: 'ธนาคาร ข', balance: 30, reconciliationStatus: 'not_started' }
+      ],
+      qualityFindings: []
+    } as unknown as PeakSnapshot;
+
+    expect(peakCashReconciliation(snapshot)).toMatchObject({
+      required: true,
+      unmatchedCount: 4,
+      unmatchedCountKnown: false
+    });
+    expect(peakCashReconciliation(snapshot).incompleteAccounts).toHaveLength(2);
+
+    snapshot.financeAccounts[2].unmatchedCount = 2;
+    expect(peakCashReconciliation(snapshot)).toMatchObject({ unmatchedCount: 6, unmatchedCountKnown: true });
+
+    snapshot.financeAccounts.forEach((account) => {
+      if (account.type === 'bank') {
+        account.reconciliationStatus = 'complete';
+        account.unmatchedCount = 0;
+      }
+    });
+    expect(peakCashReconciliation(snapshot)).toMatchObject({ required: false, unmatchedCount: 0, unmatchedCountKnown: false });
   });
 });

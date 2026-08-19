@@ -45,12 +45,14 @@ export interface Activity {id: string;at: string;actor: string;text: string;modu
 
 /** A private, browser-local executive snapshot imported from PEAK. */
 export type PeakRecordStatus = 'paid' | 'voided' | 'outstanding' | 'overdue' | 'await_receipt';
+export type PeakBankReconciliationStatus = 'not_started' | 'partial' | 'complete';
 export interface PeakRecordRow {
   id: string;documentNo: string;party: string;issueDate: string;amount: number;
   status: PeakRecordStatus;activity: string;activityAt: string;
 }
 export interface PeakFinanceAccount {
   id: string;type: 'cash' | 'bank' | 'ewallet';name: string;balance: number;
+  reconciliationStatus?: PeakBankReconciliationStatus;unmatchedCount?: number;lastReconciledAt?: string;
 }
 export interface PeakSourceFreshness {
   key: string;label: string;asOf: string;scope: string;
@@ -179,6 +181,18 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
   if (!financeAccounts.every((account) => Boolean(account && typeof account.id === 'string' && account.id.length <= 60 &&
     (account.type === 'cash' || account.type === 'bank' || account.type === 'ewallet') &&
     typeof account.name === 'string' && account.name.trim() && account.name.length <= 120 && finite(account.balance)))) return false;
+  if (financeAccounts.some((account) => {
+    const hasReconciliationEvidence = account.reconciliationStatus !== undefined || account.unmatchedCount !== undefined || account.lastReconciledAt !== undefined;
+    if (!hasReconciliationEvidence) return false;
+    if (account.type !== 'bank' || !['not_started', 'partial', 'complete'].includes(account.reconciliationStatus ?? '')) return true;
+    if (account.unmatchedCount !== undefined && !wholeNonNegative(account.unmatchedCount)) return true;
+    if (account.reconciliationStatus === 'complete' && account.unmatchedCount !== undefined && account.unmatchedCount !== 0) return true;
+    if (account.lastReconciledAt !== undefined) {
+      const reconciledTime = Date.parse(account.lastReconciledAt);
+      if (!Number.isFinite(reconciledTime) || reconciledTime > capturedTime + MAX_CLOCK_SKEW_MS || account.reconciliationStatus === 'not_started') return true;
+    }
+    return false;
+  })) return false;
   if (financeAccounts.some((account) => account.type === 'bank' && /\d{6,}/.test(account.name))) return false;
   if (new Set(financeAccounts.map((account) => account.id)).size !== financeAccounts.length) return false;
   if (!near(financeAccounts.reduce((sum, account) => sum + account.balance, 0), snapshot.cashChannels.total)) return false;
@@ -253,7 +267,10 @@ export function sanitizePeakSnapshot(value: unknown): PeakSnapshot | undefined {
       eWallet: value.cashChannels.eWallet, reconciliationRequired: value.cashChannels.reconciliationRequired
     },
     financeAccounts: value.financeAccounts.map((account) => ({
-      id: account.id, type: account.type, name: account.name, balance: account.balance
+      id: account.id, type: account.type, name: account.name, balance: account.balance,
+      ...(account.reconciliationStatus === undefined ? {} : { reconciliationStatus: account.reconciliationStatus }),
+      ...(account.unmatchedCount === undefined ? {} : { unmatchedCount: account.unmatchedCount }),
+      ...(account.lastReconciledAt === undefined ? {} : { lastReconciledAt: account.lastReconciledAt })
     })),
     recentIncomeRows: value.recentIncomeRows.map((row) => ({
       id: row.id, documentNo: row.documentNo, party: row.party, issueDate: row.issueDate,
@@ -348,6 +365,9 @@ export const STATUS: Record<string, {th: string;en: string;tone: Tone;}> = {
   posted: { th: 'ผ่านรายการ', en: 'Posted', tone: 'ok' },
   matched: { th: 'จับคู่แล้ว', en: 'Matched', tone: 'ok' },
   unmatched: { th: 'รอจับคู่', en: 'Unmatched', tone: 'warn' },
+  reconcile_not_started: { th: 'ยังไม่เริ่ม', en: 'Not started', tone: 'bad' },
+  reconcile_partial: { th: 'บางส่วน', en: 'Partial', tone: 'warn' },
+  reconcile_complete: { th: 'ครบแล้ว', en: 'Complete', tone: 'ok' },
   active: { th: 'ใช้งาน', en: 'Active', tone: 'ok' },
   planning: { th: 'เตรียมงาน', en: 'Planning', tone: 'muted' },
   disposed: { th: 'จำหน่ายแล้ว', en: 'Disposed', tone: 'muted' },

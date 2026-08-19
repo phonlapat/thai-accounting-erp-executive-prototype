@@ -31,7 +31,7 @@ interface Mod {
   kpis: (d: AppData) => Kpi[];
   panels?: (d: AppData, a: Actions, navigate: (id: string, query?: string, filters?: TableFilters) => void, view: ViewContext) => PanelSpec[];
   title?: string;sub?: string;
-  cols?: Col[];
+  cols?: Col[] | ((d: AppData) => Col[]);
   rows?: (d: AppData) => RowData[];
   filters?: (d: AppData) => FilterSpec[];
   empty?: string;
@@ -46,10 +46,11 @@ const daysBetween = (from: string, to: string) => Math.floor((Date.parse(to) - D
 
 interface PeakAttentionItem {
   left: string;sub: string;right: string;tone: 'warn' | 'bad';priority: number;
-  destination: 'peak-income' | 'peak-expenses' | 'peak-quality';actionLabel: string;filters?: TableFilters;
+  destination: 'peak-income' | 'peak-expenses' | 'peak-finance' | 'peak-quality';actionLabel: string;filters?: TableFilters;
 }
 
 function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
+  const reconciliation = peakCashReconciliation(snapshot);
   const findings: PeakAttentionItem[] = snapshot.qualityFindings.map((finding) => ({
     left: finding.title,
     sub: finding.detail,
@@ -59,6 +60,14 @@ function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
     destination: 'peak-quality',
     actionLabel: 'ดูหลักฐาน'
   }));
+  const notStartedAccounts = reconciliation.incompleteAccounts.filter((account) => account.reconciliationStatus === 'not_started').length;
+  const bankWork: PeakAttentionItem[] = reconciliation.incompleteAccounts.length ? [{
+    left: 'กระทบยอดธนาคารยังไม่ครบ',
+    sub: `${reconciliation.incompleteAccounts.length} จาก ${reconciliation.accountEvidence.length} บัญชี`,
+    right: reconciliation.unmatchedCountKnown ? `${num(reconciliation.unmatchedCount)} รายการ` : 'ต้องตรวจ',
+    tone: notStartedAccounts ? 'bad' : 'warn', priority: notStartedAccounts ? 450 : 325,
+    destination: 'peak-finance', actionLabel: 'เปิด', filters: { reconciliation: 'incomplete' }
+  }] : [];
   const work: Array<PeakAttentionItem & {count: number;amount: number;}> = [
   {
     left: 'ลูกหนี้เกินกำหนด', sub: `${snapshot.income.overdueCount} รายการ`, right: thb(snapshot.income.overdue),
@@ -80,7 +89,7 @@ function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
     tone: 'warn', priority: 150, destination: 'peak-income', actionLabel: 'เปิด',
     count: snapshot.insights.quotationAwaitingCount, amount: snapshot.insights.quotationAwaitingAmount
   }];
-  return [...findings, ...work.filter((item) => item.count > 0 || item.amount > 0)]
+  return [...findings, ...bankWork, ...work.filter((item) => item.count > 0 || item.amount > 0)]
     .sort((left, right) => right.priority - left.priority);
 }
 
@@ -1035,27 +1044,44 @@ const PEAK_MODULES: Mod[] = [
     kpis: (d) => {
       const s = peakOf(d);
       const reconciliation = peakCashReconciliation(s);
+      const notStarted = reconciliation.incompleteAccounts.some((account) => account.reconciliationStatus === 'not_started');
+      const reconciliationTone: Tone = !reconciliation.required ? 'ok' :
+        notStarted || s.cashChannels.reconciliationRequired || Math.abs(reconciliation.difference) > 0.02 || reconciliation.finding ? 'bad' : 'warn';
+      const reconciliationKpi: Kpi = reconciliation.accountEvidence.length ? {
+        label: 'กระทบยอดธนาคาร',
+        sub: reconciliation.incompleteAccounts.length ?
+          `เหลือ ${reconciliation.incompleteAccounts.length} บัญชี${reconciliation.unmatchedCountKnown ? ` · ${num(reconciliation.unmatchedCount)} รายการ` : ''}` : 'ครบทุกบัญชี',
+        value: `${reconciliation.completeAccounts.length}/${reconciliation.accountEvidence.length} บัญชี`,
+        tone: reconciliation.incompleteAccounts.length ? (notStarted ? 'bad' : 'warn') : 'ok'
+      } : { label: 'e-Wallet', value: thb(s.cashChannels.eWallet, true), tone: s.cashChannels.eWallet < 0 ? 'warn' : 'ok' };
       return [
-        { label: 'รวมตามช่องทาง', sub: reconciliation.required ? 'ต้องกระทบยอด' : 'ยอดสำคัญตรงกัน', value: thb(s.cashChannels.total, true), tone: reconciliation.required ? 'bad' : 'ok' },
+        { label: 'รวมตามช่องทาง', sub: reconciliation.required ? 'ต้องกระทบยอด' : 'ยอดสำคัญตรงกัน', value: thb(s.cashChannels.total, true), tone: reconciliationTone },
         { label: 'เงินสด', value: thb(s.cashChannels.cash, true), tone: s.cashChannels.cash < 0 ? 'bad' : 'ok' },
         { label: 'ธนาคาร', value: thb(s.cashChannels.bank, true), tone: s.cashChannels.bank < 0 ? 'bad' : 'ok' },
-        { label: 'e-Wallet', value: thb(s.cashChannels.eWallet, true), tone: s.cashChannels.eWallet < 0 ? 'warn' : 'ok' }
+        reconciliationKpi
       ];
     },
     panels: (d) => {
       const s = peakOf(d);
       const reconciliation = peakCashReconciliation(s);
       const hasCashDifference = Math.abs(reconciliation.difference) > 0.02;
+      const totalsConflict = hasCashDifference || Boolean(reconciliation.finding);
+      const requiredLines: PanelSpec['lines'] = [
+        { left: 'หน้าช่องทางการเงิน', right: thb(s.cashChannels.total), tone: totalsConflict ? 'bad' : undefined },
+        { left: 'งบแสดงฐานะการเงิน', right: thb(s.financialPosition.cashAndEquivalents), tone: totalsConflict ? 'bad' : undefined },
+        ...(totalsConflict ? [{ left: 'ส่วนต่าง', sub: reconciliation.finding?.detail, right: thb(reconciliation.difference), tone: 'bad' as const }] : []),
+        ...(reconciliation.incompleteAccounts.length ? [{
+          left: 'บัญชียังไม่ครบ',
+          sub: reconciliation.unmatchedCountKnown ? `${num(reconciliation.unmatchedCount)} รายการยังไม่จับคู่` : undefined,
+          right: `${reconciliation.incompleteAccounts.length} บัญชี`,
+          tone: reconciliation.incompleteAccounts.some((account) => account.reconciliationStatus === 'not_started') ? 'bad' as const : 'warn' as const
+        }] : []),
+        ...(!totalsConflict && !reconciliation.incompleteAccounts.length ? [{ left: 'สถานะ', right: 'ต้องตรวจสอบ', tone: 'bad' as const }] : [])
+      ];
       return [
         reconciliation.required ? {
-          title: 'ต้องกระทบยอด', sub: reconciliation.finding?.title ?? (hasCashDifference ? 'ยอดจาก PEAK ต่างกัน' : 'PEAK ระบุให้ตรวจสอบ'), full: true,
-          lines: [
-            { left: 'หน้าช่องทางการเงิน', right: thb(s.cashChannels.total), tone: 'bad' },
-            { left: 'งบแสดงฐานะการเงิน', right: thb(s.financialPosition.cashAndEquivalents), tone: 'bad' },
-            hasCashDifference || reconciliation.finding ?
-              { left: 'ส่วนต่าง', sub: reconciliation.finding?.detail, right: thb(reconciliation.difference), tone: 'bad' } :
-              { left: 'สถานะ', right: 'ต้องตรวจสอบ', tone: 'bad' }
-          ],
+          title: 'ต้องกระทบยอด', sub: reconciliation.finding?.title ?? (reconciliation.incompleteAccounts.length ? `ยังไม่ครบ ${reconciliation.incompleteAccounts.length} บัญชี` : hasCashDifference ? 'ยอดจาก PEAK ต่างกัน' : 'PEAK ระบุให้ตรวจสอบ'), full: true,
+          lines: requiredLines,
           note: 'ตรวจช่วงวันที่และกระทบยอดบัญชีธนาคารก่อนตัดสินใจจ่ายเงิน'
         } : {
           title: 'ยอดสำคัญตรงกัน', sub: `ตรวจ ณ ${dateTH(s.asOf.slice(0, 10))}`, full: true,
@@ -1069,23 +1095,45 @@ const PEAK_MODULES: Mod[] = [
       ];
     },
     title: 'บัญชีการเงินจาก PEAK',
-    cols: [
-      { key: 'name', header: 'บัญชี' },
-      { key: 'typeLabel', header: 'ประเภท' },
-      { key: 'balance', header: 'ยอดตามบัญชี', fmt: 'money', right: true, total: true }
-    ],
+    cols: (d) => {
+      const accounts = peakOf(d).financeAccounts;
+      const hasReconciliation = accounts.some((account) => account.type === 'bank' && account.reconciliationStatus);
+      const hasUnmatchedCounts = accounts.some((account) => account.type === 'bank' && account.unmatchedCount !== undefined);
+      const hasReconciledTime = accounts.some((account) => account.type === 'bank' && account.lastReconciledAt);
+      return [
+        { key: 'name', header: 'บัญชี' },
+        { key: 'typeLabel', header: 'ประเภท' },
+        ...(hasReconciliation ? [{ key: 'reconciliationState', header: 'กระทบยอด', fmt: 'status' as const }] : []),
+        ...(hasUnmatchedCounts ? [{ key: 'unmatchedCount', header: 'ยังไม่จับคู่', fmt: 'num' as const, right: true, hide: 'sm' as const }] : []),
+        ...(hasReconciledTime ? [{ key: 'lastReconciled', header: 'กระทบล่าสุด', hide: 'lg' as const }] : []),
+        { key: 'balance', header: 'ยอดตามบัญชี', fmt: 'money' as const, right: true, total: true }
+      ];
+    },
     rows: (d) => peakOf(d).financeAccounts.map((account) => ({
       id: account.id, name: account.name,
       type: account.type,
       typeLabel: account.type === 'cash' ? 'เงินสด' : account.type === 'bank' ? 'ธนาคาร' : 'e-Wallet',
+      reconciliation: account.reconciliationStatus ? (account.reconciliationStatus === 'complete' ? 'complete' : 'incomplete') : undefined,
+      reconciliationState: account.reconciliationStatus ? `reconcile_${account.reconciliationStatus}` : undefined,
+      unmatchedCount: account.unmatchedCount,
+      lastReconciled: account.lastReconciledAt ? peakStamp(account.lastReconciledAt) : undefined,
       balance: account.balance
     })),
-    filters: () => [{ key: 'type', label: 'ประเภท', options: [
-      { value: 'cash', label: 'เงินสด' },
-      { value: 'bank', label: 'ธนาคาร' },
-      { value: 'ewallet', label: 'e-Wallet' }
-    ] }],
-    empty: 'ไม่พบบัญชีประเภทนี้'
+    filters: (d) => {
+      const hasReconciliation = peakOf(d).financeAccounts.some((account) => account.type === 'bank' && account.reconciliationStatus);
+      return [
+        { key: 'type', label: 'ประเภท', options: [
+          { value: 'cash', label: 'เงินสด' },
+          { value: 'bank', label: 'ธนาคาร' },
+          { value: 'ewallet', label: 'e-Wallet' }
+        ] },
+        ...(hasReconciliation ? [{ key: 'reconciliation', label: 'กระทบยอด', options: [
+          { value: 'incomplete', label: 'ยังไม่ครบ' },
+          { value: 'complete', label: 'ครบแล้ว' }
+        ] }] : [])
+      ];
+    },
+    empty: 'ไม่พบบัญชีตามตัวกรอง'
   },
   {
     id: 'peak-statements', th: 'งบการเงิน', en: 'Financial statements', group: 'ข้อมูล PEAK', icon: BarChart3Icon,
@@ -1256,6 +1304,7 @@ function Workbench() {
   const contentRef = useRef<HTMLDivElement>(null);
   const pageTitleRef = useRef<HTMLHeadingElement>(null);
   const m = useMemo(() => availableModules.find((x) => x.id === active) ?? availableModules[0], [active, availableModules]);
+  const moduleCols = useMemo(() => typeof m.cols === 'function' ? m.cols(data) : m.cols ?? [], [m, data]);
   const moduleFilters = useMemo(() => m.filters ? m.filters(data) : [], [m, data]);
   const normalizedTableFilters = useMemo(() => {
     const normalized: TableFilters = {};
@@ -1530,12 +1579,12 @@ function Workbench() {
             <KpiStrip items={m.kpis(data)} />
             {m.panels ? <Panels items={m.panels(data, actions, go, { peakPeriod, onPeakPeriodChange: setPeakPeriod })} /> : null}
 
-            {m.cols && m.rows ?
+            {moduleCols.length && m.rows ?
             <Card>
                 <CardHead title={m.title ?? m.th} />
                 <DataTable
                 key={m.id}
-                cols={m.cols}
+                cols={moduleCols}
                 rows={m.rows(data)}
                 initialQuery={tableQuery}
                 initialFilters={normalizedTableFilters}
