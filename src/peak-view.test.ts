@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PeakSnapshot } from './data';
-import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakCashReconciliation, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
+import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
 
 describe('PEAK executive period view', () => {
   const months = [
@@ -87,5 +87,45 @@ describe('PEAK executive period view', () => {
       }
     });
     expect(peakCashReconciliation(snapshot)).toMatchObject({ required: false, unmatchedCount: 0, unmatchedCountKnown: false });
+  });
+
+  it('prioritizes source-backed match candidates and preserves coverage', () => {
+    const snapshot = {
+      financeAccounts: [
+        { id: 'bank-a', type: 'bank', name: 'ธนาคาร ก' },
+        { id: 'bank-b', type: 'bank', name: 'ธนาคาร ข' }
+      ],
+      bankReconciliation: [
+        {
+          accountId: 'bank-a', coverage: 'full', items: [
+            { id: 'none', date: '2026-08-12', description: 'ยังไม่มีคู่', direction: 'outflow', amount: 20 },
+            {
+              id: 'high', date: '2026-08-10', description: 'พบคู่ชัดเจน', direction: 'inflow', amount: 100,
+              candidate: { confidence: 'high' }
+            }
+          ]
+        },
+        {
+          accountId: 'bank-b', coverage: 'sample', items: [{
+            id: 'medium', date: '2026-08-11', description: 'ควรตรวจ', direction: 'outflow', amount: 30,
+            candidate: { confidence: 'medium' }
+          }]
+        }
+      ]
+    } as unknown as PeakSnapshot;
+
+    const review = peakBankReconciliationWorkspace(snapshot);
+    expect(review.items.map((item) => item.id)).toEqual(['high', 'medium', 'none']);
+    expect(review.items[0]).toMatchObject({ accountName: 'ธนาคาร ก', coverage: 'full' });
+    expect(review).toMatchObject({
+      inflowAmount: 100,
+      outflowAmount: 50
+    });
+    expect(review.highConfidence).toHaveLength(1);
+    expect(review.mediumConfidence).toHaveLength(1);
+    expect(review.withoutCandidate).toHaveLength(1);
+    expect(review.fullCoverageAccounts).toHaveLength(1);
+    expect(review.sampleCoverageAccounts).toHaveLength(1);
+    expect(snapshot.bankReconciliation?.[0].items.map((item) => item.id)).toEqual(['none', 'high']);
   });
 });
