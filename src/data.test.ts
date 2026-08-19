@@ -61,6 +61,17 @@ describe('PEAK snapshot boundary', () => {
     expect(isPeakSnapshot(validSnapshot())).toBe(true);
   });
 
+  it('accepts up to five years of monthly history and rejects a larger payload', () => {
+    const input = validSnapshot();
+    input.monthlyPL = Array.from({ length: 60 }, (_, index) => {
+      const month = new Date(Date.UTC(2021, 8 + index, 1)).toISOString().slice(0, 7);
+      return { month, revenue: 100, expenses: 50, profit: 50 };
+    });
+    expect(isPeakSnapshot(input)).toBe(true);
+    input.monthlyPL.push({ month: '2026-09', revenue: 100, expenses: 50, profit: 50 });
+    expect(isPeakSnapshot(input)).toBe(false);
+  });
+
   it('removes unknown top-level and nested fields', () => {
     const input = validSnapshot() as PeakSnapshot & { accessToken?: string };
     input.accessToken = 'must-not-survive';

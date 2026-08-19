@@ -433,8 +433,8 @@ export interface PanelPerformance {
   period: string;periodState: string;revenue: string;expense: string;profit: string;profitValue: number;
   change?: string;changeLabel?: string;changePositive?: boolean;
   interpretation: string;
-  total: string;totalPositive: boolean;profitableMonths: string;
-  points: Array<{label: string;value: number;note: string;current?: boolean;open?: boolean;}>
+  total: string;totalLabel?: string;totalPositive: boolean;profitableMonths: string;
+  points: Array<{label: string;value: number;note: string;current?: boolean;open?: boolean;openLabel?: string;currentLabel?: string;}>
 }
 export interface PanelChoice {
   ariaLabel: string;value: string;
@@ -486,7 +486,7 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
   const zero = -domainMin / range * 100;
   const zeroOffset = 3.3 * (1 - zero / 100) - 6.25 * zero / 100;
   const zeroPosition = `calc(${zero}% + ${zeroOffset.toFixed(3)}rem)`;
-  const aria = `${title}: ${data.period} ${data.periodState} ${currentStatus} ${data.profit}. ${data.interpretation}. ${data.points.map((item) => `${item.label} ${item.open ? 'ยังไม่ปิดงวด ' : ''}${item.value > 0 ? 'กำไร' : item.value < 0 ? 'ขาดทุน' : 'คุ้มทุน'} ${item.note}`).join(', ')}. รวม ${data.total}. มีกำไร ${data.profitableMonths}`;
+  const aria = `${title}: ${data.period} ${data.periodState} ${currentStatus} ${data.profit}. ${data.interpretation}. ${data.points.map((item) => `${item.label} ${item.open ? `${item.openLabel ?? 'ยังไม่ปิดงวด'} ` : ''}${item.value > 0 ? 'กำไร' : item.value < 0 ? 'ขาดทุน' : 'คุ้มทุน'} ${item.note}`).join(', ')}. ${data.totalLabel ?? `รวม ${data.points.length} เดือน`} ${data.total}. มีกำไร ${data.profitableMonths}`;
   return (
     <section aria-label={aria} className="flex flex-1 flex-col">
       <div className="grid flex-1 min-[720px]:grid-cols-[minmax(240px,0.72fr)_minmax(0,1.28fr)]">
@@ -534,9 +534,9 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
               const width = Math.max(1.5, Math.abs(valuePosition - zero));
               const status = positive ? 'กำไร' : negative ? 'ขาดทุน' : 'คุ้มทุน';
               return (
-                <li key={point.label} aria-label={`${point.label} ${point.open ? 'ยังไม่ปิดงวด ' : ''}${status} ${signedNote}${point.current ? ' เดือนปัจจุบัน' : ''}`} className={cx('grid min-h-11 grid-cols-[2.8rem_minmax(0,1fr)_5.75rem] items-center gap-2', negative && 'bg-amber-50/60')}>
+                <li key={point.label} aria-label={`${point.label} ${point.open ? `${point.openLabel ?? 'ยังไม่ปิดงวด'} ` : ''}${status} ${signedNote}${point.current ? ` ${point.currentLabel ?? 'เดือนปัจจุบัน'}` : ''}`} className={cx('grid min-h-11 grid-cols-[2.8rem_minmax(0,1fr)_5.75rem] items-center gap-2', negative && 'bg-amber-50/60')}>
                   <span className={cx('pl-1 text-[11px] font-medium leading-4', point.current ? 'text-slate-950' : 'text-slate-600')}>
-                    {point.label}{point.open ? <small className="block text-[9px] font-normal text-slate-500">ยังไม่ปิด</small> : null}
+                    {point.label}{point.open ? <small className="block text-[9px] font-normal text-slate-500">{point.openLabel ?? 'ยังไม่ปิด'}</small> : null}
                   </span>
                   <span className="relative block h-7" aria-hidden="true">
                     <span
@@ -556,7 +556,7 @@ function PerformanceOverview({ data, title }: {data: PanelPerformance;title: str
 
       <dl className="grid grid-cols-2 gap-4 border-t border-slate-200 px-4 py-3 min-[720px]:px-5">
         <div>
-          <dt className="text-[10.5px] text-slate-500">รวม {data.points.length} เดือน</dt>
+          <dt className="text-[10.5px] text-slate-500">{data.totalLabel ?? `รวม ${data.points.length} เดือน`}</dt>
           <dd className={cx('text-[13px] font-semibold tabular-nums', data.totalPositive ? 'text-blue-700' : 'text-amber-700')}>{data.totalPositive ? 'กำไร' : 'ขาดทุน'} {data.total}</dd>
         </div>
         <div className="text-right">

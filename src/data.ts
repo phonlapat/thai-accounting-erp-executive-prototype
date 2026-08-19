@@ -172,7 +172,7 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
     Boolean(customer && typeof customer.name === 'string' && customer.name.trim() && customer.name.length <= 160 && nonNegative(customer.amount))
   )) return false;
   if (!near(snapshot.topCustomers.reduce((sum, customer) => sum + customer.amount, 0), snapshot.income.currentMonthSales)) return false;
-  if (!Array.isArray(snapshot.monthlyPL) || snapshot.monthlyPL.length < 2 || snapshot.monthlyPL.length > 12) return false;
+  if (!Array.isArray(snapshot.monthlyPL) || snapshot.monthlyPL.length < 2 || snapshot.monthlyPL.length > 60) return false;
   if (!snapshot.monthlyPL.every((month) => Boolean(month && /^\d{4}-\d{2}$/.test(month.month) &&
     nonNegative(month.revenue) && nonNegative(month.expenses) && finite(month.profit) &&
     near(month.revenue - month.expenses, month.profit) &&

@@ -16,7 +16,7 @@ import {
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
-import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
+import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakYearTH, selectPeakMonths } from './peak-view';
 import type { PeakPeriod } from './peak-view';
 import { buildTableHash, parseTableRoute } from './table-route';
 import type { TableFilters } from './table-route';
@@ -108,18 +108,21 @@ function peakDashboardPanels(
   const periodOptions = availablePeakPeriods(allMonthly.length);
   const latest = monthly[monthly.length - 1];
   const previous = monthly[monthly.length - 2];
+  const profitSeries = peakProfitSeries(monthly);
+  const comparison = peakPeriodComparison(allMonthly, activePeriod);
   const monthlyTotal = monthly.reduce((sum, item) => sum + item.profit, 0);
   const profitableMonths = monthly.filter((item) => item.profit >= 0).length;
   const worst = monthly.reduce((result, item) => item.profit < result.profit ? item : result, monthly[0]);
   const latestLabel = dateTH(`${latest.month}-01`).split(' ').slice(1).join(' ');
   const worstLabel = dateTH(`${worst.month}-01`).split(' ')[1];
-  const change = latest.partial || !previous ? undefined : latest.profit - previous.profit;
+  const monthlyChange = latest.partial || previous?.partial ? undefined : latest.profit - previous.profit;
+  const change = comparison?.difference ?? monthlyChange;
   const attention = peakAttentionItems(snapshot);
   return [
   {
-    title: 'กำไรรายเดือน', sub: `${peakMonthRange(monthly)} · งบกำไรขาดทุน PEAK`, dashboardArea: 'performance',
+    title: 'แนวโน้มกำไร', sub: `${peakMonthRange(monthly)} · ${profitSeries.grain === 'year' ? 'สรุปรายปี' : 'รายเดือน'} · PEAK`, dashboardArea: 'performance',
     choice: onPeriodChange && periodOptions.length > 1 ? {
-      ariaLabel: 'ช่วงเวลากำไรรายเดือน',
+      ariaLabel: 'ช่วงเวลาการวิเคราะห์กำไร',
       value: activePeriod,
       options: periodOptions.map((value) => ({ value, label: value === 'all' ? 'ทั้งหมด' : `${value} เดือน` })),
       onChange: (value) => { if (isPeakPeriod(value)) onPeriodChange(value); }
@@ -130,14 +133,19 @@ function peakDashboardPanels(
       revenue: thb(latest.revenue, true), expense: thb(latest.expenses, true),
       profit: `${latest.profit > 0 ? '+' : ''}${thb(latest.profit, true)}`, profitValue: latest.profit,
       change: change === undefined ? undefined : `${change >= 0 ? '+' : ''}${thb(change, true)}`,
-      changeLabel: change === undefined ? undefined : `${change >= 0 ? 'ดีขึ้น' : 'ลดลง'}จาก ${dateTH(`${previous.month}-01`).split(' ')[1]}`,
+      changeLabel: change === undefined ? undefined : comparison ? `รวม ${activePeriod} เดือนเทียบช่วงก่อน` : 'เทียบเดือนก่อน',
       changePositive: change === undefined ? undefined : change >= 0,
       interpretation: `${profitableMonths} จาก ${monthly.length} เดือนเป็นกำไร · เดือน ${worstLabel} ต่ำสุด`,
-      total: thb(monthlyTotal, true), totalPositive: monthlyTotal >= 0,
+      total: thb(monthlyTotal, true), totalLabel: `รวม ${monthly.length} เดือน`, totalPositive: monthlyTotal >= 0,
       profitableMonths: `${profitableMonths} จาก ${monthly.length} เดือน`,
-      points: monthly.map((item, index) => ({
-        label: dateTH(`${item.month}-01`).split(' ')[1], value: item.profit,
-        note: thb(item.profit, true), current: index === monthly.length - 1, open: Boolean(item.partial)
+      points: profitSeries.points.map((item, index) => ({
+        label: profitSeries.grain === 'year' ? `ปี ${String(Number(item.key) + 543).slice(-2)}` : dateTH(`${item.key}-01`).split(' ')[1],
+        value: item.value,
+        note: thb(item.value, true),
+        current: index === profitSeries.points.length - 1,
+        currentLabel: profitSeries.grain === 'year' ? 'ปีล่าสุด' : 'เดือนปัจจุบัน',
+        open: item.partial,
+        openLabel: profitSeries.grain === 'year' && item.monthCount < 12 ? `${item.monthCount} เดือน` : undefined
       }))
     }
   },

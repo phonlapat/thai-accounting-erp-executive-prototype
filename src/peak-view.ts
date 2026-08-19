@@ -1,16 +1,15 @@
 import type { PeakBankReconciliationItem, PeakSnapshot } from './data';
 
-export type PeakPeriod = '3' | '6' | 'all';
+export type PeakPeriod = '3' | '6' | '12' | 'all';
 
 export const PEAK_PERIOD_KEY = 'siam-erp-peak-period-v1';
 
 export function isPeakPeriod(value: unknown): value is PeakPeriod {
-  return value === '3' || value === '6' || value === 'all';
+  return value === '3' || value === '6' || value === '12' || value === 'all';
 }
 
 export function effectivePeakPeriod(period: PeakPeriod, monthCount: number): PeakPeriod {
-  if (period === '3' && monthCount <= 3) return 'all';
-  if (period === '6' && monthCount <= 6) return 'all';
+  if (period !== 'all' && monthCount <= Number(period)) return 'all';
   return period;
 }
 
@@ -18,6 +17,7 @@ export function availablePeakPeriods(monthCount: number): PeakPeriod[] {
   const periods: PeakPeriod[] = [];
   if (monthCount > 3) periods.push('3');
   if (monthCount > 6) periods.push('6');
+  if (monthCount > 12) periods.push('12');
   periods.push('all');
   return periods;
 }
@@ -26,6 +26,87 @@ export function selectPeakMonths<T extends {month: string;}>(months: T[], period
   const sorted = [...months].sort((left, right) => left.month.localeCompare(right.month));
   if (period === 'all') return sorted;
   return sorted.slice(-Number(period));
+}
+
+interface PeakProfitMonth {month: string;profit: number;partial?: boolean;}
+
+export interface PeakProfitPoint {
+  key: string;
+  value: number;
+  partial: boolean;
+  monthCount: number;
+}
+
+export interface PeakProfitSeries {
+  grain: 'month' | 'year';
+  points: PeakProfitPoint[];
+}
+
+function monthIndex(month: string): number | undefined {
+  const parsed = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!parsed) return undefined;
+  const year = Number(parsed[1]);
+  const monthNumber = Number(parsed[2]);
+  if (!Number.isInteger(year) || monthNumber < 1 || monthNumber > 12) return undefined;
+  return year * 12 + monthNumber - 1;
+}
+
+function isContiguous(months: PeakProfitMonth[]): boolean {
+  return months.every((item, index) => {
+    if (index === 0) return monthIndex(item.month) !== undefined;
+    const current = monthIndex(item.month);
+    const previous = monthIndex(months[index - 1].month);
+    return current !== undefined && previous !== undefined && current === previous + 1;
+  });
+}
+
+/** Compare two equal, contiguous, closed periods. Missing or open months stay unknown. */
+export function peakPeriodComparison(months: PeakProfitMonth[], period: PeakPeriod) {
+  if (period === 'all') return undefined;
+  const size = Number(period);
+  const sorted = [...months].sort((left, right) => left.month.localeCompare(right.month));
+  if (sorted.length < size * 2) return undefined;
+  const window = sorted.slice(-size * 2);
+  if (!isContiguous(window) || window.some((item) => item.partial)) return undefined;
+  const previous = window.slice(0, size).reduce((sum, item) => sum + item.profit, 0);
+  const current = window.slice(size).reduce((sum, item) => sum + item.profit, 0);
+  const difference = current - previous;
+  return {
+    current,
+    previous,
+    difference,
+    changePct: previous === 0 ? undefined : difference / Math.abs(previous) * 100
+  };
+}
+
+/** Keep monthly detail for short views and aggregate long history to compact yearly marks. */
+export function peakProfitSeries(months: PeakProfitMonth[]): PeakProfitSeries {
+  const sorted = [...months].sort((left, right) => left.month.localeCompare(right.month));
+  if (sorted.length <= 12) {
+    return {
+      grain: 'month',
+      points: sorted.map((item) => ({
+        key: item.month,
+        value: item.profit,
+        partial: Boolean(item.partial),
+        monthCount: 1
+      }))
+    };
+  }
+  const byYear = new Map<string, PeakProfitMonth[]>();
+  sorted.forEach((item) => {
+    const year = item.month.slice(0, 4);
+    byYear.set(year, [...(byYear.get(year) ?? []), item]);
+  });
+  return {
+    grain: 'year',
+    points: Array.from(byYear, ([key, rows]) => ({
+      key,
+      value: rows.reduce((sum, item) => sum + item.profit, 0),
+      partial: rows.length < 12 || rows.some((item) => item.partial),
+      monthCount: rows.length
+    }))
+  };
 }
 
 function shortMonth(month: string): {name: string;year: string;} {
