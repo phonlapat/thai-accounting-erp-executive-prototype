@@ -213,6 +213,8 @@ export interface PeakSnapshotMeta {
   capturedAt: string;
 }
 
+export type BrowserStorageIssue = 'private-save' | 'private-clear' | 'history';
+
 export function peakMetaFromSnapshot(snapshot: AppData['peakSnapshot']): PeakSnapshotMeta | undefined {
   if (!snapshot) return undefined;
   return { asOf: snapshot.asOf, capturedAt: snapshot.capturedAt };
@@ -303,26 +305,37 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
   const [data, setData] = useState<AppData>(initial.current.data);
   const dataRef = useRef(data);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [storageIssue, setStorageIssue] = useState(false);
+  const [storageIssue, setStorageIssue] = useState<BrowserStorageIssue | undefined>();
   const [lastPeakMeta, setLastPeakMeta] = useState<PeakSnapshotMeta | undefined>(() => readPeakSnapshotMeta());
   const [recoveredStorage] = useState(initial.current.recoveredStorage);
   const toastTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   useEffect(() => {
+    let privateIssue: BrowserStorageIssue | undefined;
+    let historyFailed = false;
     try {
       localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(demoDataForStorage(data)));
-      if (data.peakSnapshot) {
-        sessionStorage.setItem(PEAK_SESSION_KEY, JSON.stringify(data.peakSnapshot));
-        const nextMeta = peakMetaFromSnapshot(data.peakSnapshot);
-        if (nextMeta) {
-          localStorage.setItem(PEAK_META_KEY, JSON.stringify(nextMeta));
-          setLastPeakMeta((current) => current?.capturedAt === nextMeta.capturedAt && current.asOf === nextMeta.asOf ? current : nextMeta);
-        }
-      } else sessionStorage.removeItem(PEAK_SESSION_KEY);
-      setStorageIssue(false);
     } catch {
-      setStorageIssue(true);
+      historyFailed = true;
     }
+    try {
+      if (data.peakSnapshot) sessionStorage.setItem(PEAK_SESSION_KEY, JSON.stringify(data.peakSnapshot));
+      else sessionStorage.removeItem(PEAK_SESSION_KEY);
+    } catch {
+      privateIssue = data.peakSnapshot ? 'private-save' : 'private-clear';
+    }
+    if (data.peakSnapshot) {
+      const nextMeta = peakMetaFromSnapshot(data.peakSnapshot);
+      if (nextMeta) {
+        setLastPeakMeta((current) => current?.capturedAt === nextMeta.capturedAt && current.asOf === nextMeta.asOf ? current : nextMeta);
+        try {
+          localStorage.setItem(PEAK_META_KEY, JSON.stringify(nextMeta));
+        } catch {
+          historyFailed = true;
+        }
+      }
+    }
+    setStorageIssue(privateIssue ?? (historyFailed ? 'history' : undefined));
   }, [data]);
 
   useEffect(() => () => toastTimers.current.forEach((timer) => clearTimeout(timer)), []);
