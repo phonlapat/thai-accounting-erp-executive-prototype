@@ -38,6 +38,46 @@ const opts = (vals: string[]) => Array.from(new Set(vals)).map((v) => ({ value: 
 const N = (v: string | number | undefined) => Number(v ?? 0);
 const daysBetween = (from: string, to: string) => Math.floor((Date.parse(to) - Date.parse(from)) / 864e5);
 
+interface PeakAttentionItem {
+  left: string;sub: string;right: string;tone: 'warn' | 'bad';priority: number;
+  destination: 'peak-income' | 'peak-expenses' | 'peak-quality';actionLabel: string;
+}
+
+function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
+  const findings: PeakAttentionItem[] = snapshot.qualityFindings.map((finding) => ({
+    left: finding.title,
+    sub: finding.detail,
+    right: finding.severity === 'bad' ? 'เสี่ยงสูง' : 'ควรตรวจ',
+    tone: finding.severity,
+    priority: finding.severity === 'bad' ? 500 : 400,
+    destination: 'peak-quality',
+    actionLabel: 'ดูหลักฐาน'
+  }));
+  const work: Array<PeakAttentionItem & {count: number;amount: number;}> = [
+  {
+    left: 'ลูกหนี้เกินกำหนด', sub: `${snapshot.income.overdueCount} รายการ`, right: thb(snapshot.income.overdue),
+    tone: 'bad', priority: 350, destination: 'peak-income', actionLabel: 'เปิด',
+    count: snapshot.income.overdueCount, amount: snapshot.income.overdue
+  },
+  {
+    left: 'ค่าใช้จ่ายและซื้อเกินกำหนด', sub: `${snapshot.expense.overdueActionCount} งาน`, right: thb(snapshot.expense.overdueActionAmount),
+    tone: 'warn', priority: 300, destination: 'peak-expenses', actionLabel: 'เปิด',
+    count: snapshot.expense.overdueActionCount, amount: snapshot.expense.overdueActionAmount
+  },
+  {
+    left: 'ใบเสนอราคาหมดอายุ', sub: `${snapshot.income.expiredQuotationCount} ฉบับ`, right: thb(snapshot.income.expiredQuotation),
+    tone: 'warn', priority: 200, destination: 'peak-income', actionLabel: 'เปิด',
+    count: snapshot.income.expiredQuotationCount, amount: snapshot.income.expiredQuotation
+  },
+  {
+    left: 'ใบเสนอราคารอลูกค้าตอบ', sub: `${snapshot.insights.quotationAwaitingCount} ฉบับ`, right: thb(snapshot.insights.quotationAwaitingAmount),
+    tone: 'warn', priority: 150, destination: 'peak-income', actionLabel: 'เปิด',
+    count: snapshot.insights.quotationAwaitingCount, amount: snapshot.insights.quotationAwaitingAmount
+  }];
+  return [...findings, ...work.filter((item) => item.count > 0 || item.amount > 0)]
+    .sort((left, right) => right.priority - left.priority);
+}
+
 function peakDashboardPanels(snapshot: PeakSnapshot, navigate: (id: string, query?: string) => void): PanelSpec[] {
   const asOf = dateTH(snapshot.asOf.slice(0, 10));
   const monthly = [...snapshot.monthlyPL].sort((left, right) => left.month.localeCompare(right.month));
@@ -49,6 +89,7 @@ function peakDashboardPanels(snapshot: PeakSnapshot, navigate: (id: string, quer
   const latestLabel = dateTH(`${latest.month}-01`).split(' ').slice(1).join(' ');
   const worstLabel = dateTH(`${worst.month}-01`).split(' ')[1];
   const change = latest.partial ? undefined : latest.profit - previous.profit;
+  const attention = peakAttentionItems(snapshot);
   return [
   {
     title: 'กำไรรายเดือน', sub: `${monthly.length} เดือนล่าสุด · งบกำไรขาดทุน PEAK`, dashboardArea: 'performance',
@@ -70,12 +111,12 @@ function peakDashboardPanels(snapshot: PeakSnapshot, navigate: (id: string, quer
     }
   },
   {
-    title: 'ต้องตรวจสอบ', sub: `${snapshot.qualityFindings.length} จุดจากการเทียบหน้ารายงาน`, dashboardArea: 'urgent',
-    lines: snapshot.qualityFindings.map((finding) => ({
-      left: finding.title, sub: finding.detail, right: finding.severity === 'bad' ? 'ความเสี่ยงสูง' : 'ควรตรวจ', tone: finding.severity,
-      actions: [{ label: 'ดูหลักฐาน', ariaLabel: `ดูหลักฐาน ${finding.title}`, run: () => navigate('peak-quality'), variant: 'ghost' }]
+    title: 'ต้องทำตอนนี้', sub: attention.length ? `${attention.length} เรื่อง · เรียงตามความสำคัญ` : 'ไม่มีเรื่องเร่งด่วน', dashboardArea: 'urgent', collapseAfter: 4,
+    lines: attention.map((item) => ({
+      left: item.left, sub: item.sub, right: item.right, tone: item.tone,
+      actions: [{ label: item.actionLabel, ariaLabel: `${item.actionLabel} ${item.left}`, run: () => navigate(item.destination), variant: 'ghost' }]
     })),
-    empty: 'ยอดสำคัญตรงกัน'
+    empty: 'ทุกเรื่องสำคัญเรียบร้อย'
   },
   {
     title: 'ฐานะการเงิน', sub: `งบ ณ ${asOf}`, dashboardArea: 'approvals',
@@ -86,19 +127,11 @@ function peakDashboardPanels(snapshot: PeakSnapshot, navigate: (id: string, quer
     { left: 'สภาพคล่อง', sub: `หนี้ต่อทุน ${snapshot.financialPosition.debtToEquity.toFixed(1)} เท่า`, right: `${snapshot.financialPosition.currentRatio.toFixed(1)} เท่า`, tone: snapshot.financialPosition.currentRatio < 1.2 ? 'warn' : 'ok' }]
   },
   {
-    title: 'ยอดขายเดือนนี้', sub: `ถึง ${asOf} · ${snapshot.income.currentMonthSalesChangePct.toFixed(2)}% จากเดือนก่อน`, wide: true,
+    title: 'ยอดขายเดือนนี้', sub: `ถึง ${asOf} · ${snapshot.income.currentMonthSalesChangePct.toFixed(2)}% จากเดือนก่อน`,
     bars: [
     { label: 'สินค้า', note: thb(snapshot.salesMix.product), value: snapshot.salesMix.product, max: snapshot.income.currentMonthSales, tone: 'info' },
     { label: 'บริการ', note: thb(snapshot.salesMix.service), value: snapshot.salesMix.service, max: snapshot.income.currentMonthSales, tone: 'muted' }],
     lines: snapshot.topCustomers.slice(0, 4).map((customer) => ({ left: customer.name, right: thb(customer.amount) }))
-  },
-  {
-    title: 'งานที่ต้องตาม', sub: 'จาก PEAK Smart Insight และหน้าเอกสาร',
-    lines: [
-    { left: 'ใบเสนอราคารอลูกค้าตอบ', sub: `${snapshot.insights.quotationAwaitingCount} ฉบับ`, right: thb(snapshot.insights.quotationAwaitingAmount), tone: 'warn', actions: [{ label: 'เปิด', ariaLabel: 'เปิดรายละเอียดใบเสนอราคารอลูกค้าตอบ', run: () => navigate('peak-income'), variant: 'ghost' }] },
-    { left: 'ลูกหนี้เกินกำหนด', sub: `${snapshot.income.overdueCount} รายการ`, right: thb(snapshot.income.overdue), tone: 'bad', actions: [{ label: 'เปิด', ariaLabel: 'เปิดรายละเอียดลูกหนี้เกินกำหนด', run: () => navigate('peak-income'), variant: 'ghost' }] },
-    { left: 'ค่าใช้จ่ายและซื้อเกินกำหนด', sub: `${snapshot.expense.overdueActionCount} งาน`, right: thb(snapshot.expense.overdueActionAmount), tone: 'warn', actions: [{ label: 'เปิด', ariaLabel: 'เปิดรายละเอียดค่าใช้จ่ายเกินกำหนด', run: () => navigate('peak-expenses'), variant: 'ghost' }] },
-    { left: 'ใบเสนอราคาหมดอายุ', sub: `${snapshot.income.expiredQuotationCount} ฉบับ`, right: thb(snapshot.income.expiredQuotation), tone: 'warn', actions: [{ label: 'เปิด', ariaLabel: 'เปิดรายละเอียดใบเสนอราคาหมดอายุ', run: () => navigate('peak-income'), variant: 'ghost' }] }]
   },
   {
     title: 'ภาษีค้างจ่าย', sub: 'ยอดบัญชีใน PEAK',
@@ -179,12 +212,14 @@ const CORE: Mod[] = [
   kpis: (d) => {
     if (d.peakSnapshot) {
       const snapshot = d.peakSnapshot;
+      const attention = peakAttentionItems(snapshot);
+      const attentionTone: Tone = attention.some((item) => item.tone === 'bad') ? 'bad' : attention.length ? 'warn' : 'ok';
       return [
       { label: 'กำไรปี 2569', sub: snapshot.ytd.profit >= 0 ? 'สถานะ: กำไร' : 'สถานะ: ขาดทุน', value: `${snapshot.ytd.profit >= 0 ? '+' : ''}${thb(snapshot.ytd.profit, true)}`, tone: snapshot.ytd.profit >= 0 ? 'ok' : 'bad' },
       { label: 'รายได้ปี 2569', sub: 'ตามงบกำไรขาดทุน', value: thb(snapshot.ytd.revenue, true) },
       { label: 'ลูกหนี้เกินกำหนด', sub: snapshot.income.overdue ? `ต้องตาม ${snapshot.income.overdueCount} รายการ` : 'ไม่มีรายการเกินกำหนด', value: thb(snapshot.income.overdue, true), tone: snapshot.income.overdue ? 'bad' : 'ok' },
       { label: 'สภาพคล่อง', sub: snapshot.financialPosition.currentRatio < 1.2 ? 'ต่ำกว่าเกณฑ์' : 'อยู่ในเกณฑ์', value: `${snapshot.financialPosition.currentRatio.toFixed(1)} เท่า`, tone: snapshot.financialPosition.currentRatio < 1.2 ? 'warn' : 'ok' },
-      { label: 'ต้องตรวจสอบ', sub: snapshot.qualityFindings.length ? 'ยอดยังไม่ตรงกัน' : 'ยอดสำคัญตรงกัน', value: `${snapshot.qualityFindings.length} จุด`, tone: snapshot.qualityFindings.length ? 'bad' : 'ok' }];
+      { label: 'ต้องทำตอนนี้', sub: attention[0]?.left ?? 'ไม่มีเรื่องเร่งด่วน', value: `${attention.length} เรื่อง`, tone: attentionTone }];
     }
     const latest = series(d).slice(-1)[0];
     const latestOpen = latest ? latest.month > d.settings.closedThrough.slice(0, 7) : false;
@@ -1147,6 +1182,7 @@ function Workbench() {
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [open, setOpen] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [peakImportOpen, setPeakImportOpen] = useState(false);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const restoreMenuFocusRef = useRef(false);
@@ -1244,38 +1280,37 @@ function Workbench() {
     return (
       <main className="grid min-h-screen bg-slate-950 text-white lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.72fr)]">
         <section className="flex flex-col px-5 py-5 sm:px-9 sm:py-7 lg:min-h-screen lg:px-14 lg:py-10 xl:px-20" aria-label="Siam ERP">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
-            <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[12px] text-slate-400">ภาพรวมผู้บริหาร</p></div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
+              <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[12px] text-slate-400">ภาพรวมผู้บริหาร</p></div>
+            </div>
+            <p className="text-[11.5px] tabular-nums text-slate-400">อัปเดตระบบ {peakStamp(__BUILD_AT__)}</p>
           </div>
           <div className="mt-10 max-w-2xl pb-8 sm:mt-16 lg:my-auto lg:py-12">
             <h1 className="text-balance text-[clamp(2.35rem,5vw,4.8rem)] font-semibold leading-[1.04] tracking-[-0.04em]">ภาพรวมธุรกิจ</h1>
-            <p className="mt-4 max-w-[45ch] text-[15px] leading-6 text-slate-300">PEAK · อ่านอย่างเดียว</p>
+            <p className="mt-4 max-w-[45ch] text-[15px] leading-6 text-slate-300">PEAK · เปิดจากไฟล์ · อ่านอย่างเดียว</p>
 
-            <dl className="mt-10 max-w-xl divide-y divide-slate-800 border-y border-slate-800 sm:mt-12">
+            <dl className="mt-10 max-w-xl border-y border-slate-800 sm:mt-12">
               <div className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
-                <dt className="flex items-center gap-2 text-[13px] text-slate-400"><HistoryIcon className="h-4 w-4" />ข้อมูล PEAK ล่าสุด</dt>
+                <dt className="flex items-center gap-2 text-[13px] text-slate-400"><HistoryIcon className="h-4 w-4" />ข้อมูลล่าสุด</dt>
                 <dd className="text-[14px] font-semibold text-white sm:text-right">
                   {lastPeakMeta ? <>
-                    <span>{dateTH(lastPeakMeta.asOf.slice(0, 10))}</span>
+                    <span>ถึง {dateTH(lastPeakMeta.asOf.slice(0, 10))}</span>
                     {lastPeakFreshness ? <span className={cx('ml-2 text-[12px] font-medium', lastPeakFreshness.status === 'fresh' ? 'text-emerald-300' : lastPeakFreshness.status === 'aging' ? 'text-amber-300' : 'text-rose-300')}>· {lastPeakFreshness.label}</span> : null}
-                    <span className="mt-0.5 block text-[11.5px] font-normal text-slate-400">ตรวจ {peakStamp(lastPeakMeta.capturedAt)}</span>
+                    <span className="mt-0.5 block text-[11.5px] font-normal text-slate-400">ตรวจล่าสุด {peakStamp(lastPeakMeta.capturedAt)}</span>
                   </> : 'ยังไม่เคยเปิด'}
                 </dd>
               </div>
-              <div className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
-                <dt className="text-[13px] text-slate-400">แอปล่าสุด</dt>
-                <dd className="text-[14px] font-semibold text-white">{peakStamp(__BUILD_AT__)}</dd>
-              </div>
             </dl>
+            {lastPeakMeta ? <button type="button" onClick={() => setConfirmClearHistory(true)} className="mt-1 inline-flex min-h-11 items-center text-[12px] font-medium text-slate-400 underline decoration-slate-700 underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">ล้างเวลาที่จำไว้</button> : null}
           </div>
         </section>
 
         <section className="flex items-start justify-center bg-slate-50 px-5 py-8 text-slate-950 sm:px-8 sm:py-12 lg:items-center" aria-labelledby="peak-gate-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.42)] sm:p-8">
-            <h2 id="peak-gate-title" className="text-[26px] font-semibold tracking-[-0.025em]">เปิดแดชบอร์ด</h2>
-            <p className="mt-2 text-[13px] leading-5 text-slate-600">{lastPeakMeta ? 'เลือกไฟล์เดิมหรือไฟล์ที่ใหม่กว่า' : 'เลือกไฟล์ข้อมูลจาก PEAK'}</p>
-            <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+            <h2 id="peak-gate-title" className="text-[26px] font-semibold tracking-[-0.025em]">เปิดข้อมูล</h2>
+            <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
               <UploadIcon className="h-4 w-4" />เลือกไฟล์ PEAK
             </button>
             {storageIssueText ? <div className="mt-4 flex items-start gap-2 text-[12px] leading-5 text-rose-700" role="alert">
@@ -1299,6 +1334,13 @@ function Workbench() {
             return imported;
           }}
           onClose={() => setPeakImportOpen(false)} />
+        <ConfirmDialog
+          open={confirmClearHistory}
+          title="ล้างเวลาล่าสุด?"
+          description="ลบเฉพาะวันที่ที่จำไว้ ไม่มีผลต่อไฟล์ PEAK"
+          confirmLabel="ล้างเวลา"
+          onConfirm={() => actions.clearPeakHistory()}
+          onClose={() => setConfirmClearHistory(false)} />
       </main>
     );
   }
@@ -1430,7 +1472,7 @@ function Workbench() {
       <ConfirmDialog
         open={confirmSignOut}
         title="ลบข้อมูลจากแท็บ?"
-        description="ข้อมูล PEAK จะหายจากแท็บนี้"
+        description="ตัวเลขและรายการจะถูกลบ เวลาที่ตรวจล่าสุดยังแสดงต่อ"
         confirmLabel="ลบและออก"
         onConfirm={() => { actions.clearPeakSnapshot(); setConfirmSignOut(false); }}
         onClose={() => setConfirmSignOut(false)} />
