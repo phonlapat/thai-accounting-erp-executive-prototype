@@ -206,6 +206,37 @@ export interface Toast {id: string;text: string;tone: 'ok' | 'bad';}
 
 export const DEMO_STORAGE_KEY = 'siam-erp-th-v1';
 export const PEAK_SESSION_KEY = 'siam-erp-peak-v3';
+export const PEAK_META_KEY = 'siam-erp-peak-meta-v1';
+
+export interface PeakSnapshotMeta {
+  asOf: string;
+  capturedAt: string;
+}
+
+export function peakMetaFromSnapshot(snapshot: AppData['peakSnapshot']): PeakSnapshotMeta | undefined {
+  if (!snapshot) return undefined;
+  return { asOf: snapshot.asOf, capturedAt: snapshot.capturedAt };
+}
+
+export function isPeakSnapshotMeta(value: unknown): value is PeakSnapshotMeta {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<PeakSnapshotMeta>;
+  return typeof candidate.asOf === 'string' && Number.isFinite(Date.parse(candidate.asOf)) &&
+    typeof candidate.capturedAt === 'string' && Number.isFinite(Date.parse(candidate.capturedAt));
+}
+
+function readPeakSnapshotMeta(): PeakSnapshotMeta | undefined {
+  try {
+    const raw = localStorage.getItem(PEAK_META_KEY);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as unknown;
+    if (isPeakSnapshotMeta(parsed)) return parsed;
+    localStorage.removeItem(PEAK_META_KEY);
+  } catch {
+    /* optional, non-financial browser history */
+  }
+  return undefined;
+}
 
 const ARRAY_FIELDS: Array<keyof AppData> = [
   'products', 'contacts', 'docs', 'expenses', 'bankAccts', 'bankTxns', 'journals', 'accounts',
@@ -273,14 +304,21 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
   const dataRef = useRef(data);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [storageIssue, setStorageIssue] = useState(false);
+  const [lastPeakMeta, setLastPeakMeta] = useState<PeakSnapshotMeta | undefined>(() => readPeakSnapshotMeta());
   const [recoveredStorage] = useState(initial.current.recoveredStorage);
   const toastTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   useEffect(() => {
     try {
       localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(demoDataForStorage(data)));
-      if (data.peakSnapshot) sessionStorage.setItem(PEAK_SESSION_KEY, JSON.stringify(data.peakSnapshot));
-      else sessionStorage.removeItem(PEAK_SESSION_KEY);
+      if (data.peakSnapshot) {
+        sessionStorage.setItem(PEAK_SESSION_KEY, JSON.stringify(data.peakSnapshot));
+        const nextMeta = peakMetaFromSnapshot(data.peakSnapshot);
+        if (nextMeta) {
+          localStorage.setItem(PEAK_META_KEY, JSON.stringify(nextMeta));
+          setLastPeakMeta((current) => current?.capturedAt === nextMeta.capturedAt && current.asOf === nextMeta.asOf ? current : nextMeta);
+        }
+      } else sessionStorage.removeItem(PEAK_SESSION_KEY);
       setStorageIssue(false);
     } catch {
       setStorageIssue(true);
@@ -636,6 +674,7 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
       reset: () => {
         try {
           localStorage.removeItem(DEMO_STORAGE_KEY);
+          localStorage.removeItem(PEAK_META_KEY);
           sessionStorage.removeItem(PEAK_SESSION_KEY);
         } catch {
 
@@ -643,12 +682,13 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
         const next = seed();
         dataRef.current = next;
         setData(next);
+        setLastPeakMeta(undefined);
         notify('คืนค่าข้อมูลตัวอย่างเรียบร้อย');
       }
     };
   }, [actor, notify]);
 
-  return { data, actions, toasts, storageIssue, recoveredStorage };
+  return { data, actions, toasts, storageIssue, recoveredStorage, lastPeakMeta };
 }
 
 export type Actions = ReturnType<typeof useStore>['actions'];
