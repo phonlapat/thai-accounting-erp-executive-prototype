@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircleIcon, BarChart3Icon, BookOpenIcon, Building2Icon, BoxesIcon, CheckCircle2Icon, ChevronsLeftIcon,
   ChevronsRightIcon, ClipboardCheckIcon, FileTextIcon, HistoryIcon, InboxIcon, LandmarkIcon, LayoutDashboardIcon,
-  LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon, UploadIcon, UsersIcon, WalletIcon, XIcon } from
+  LockKeyholeIcon, LogOutIcon, MenuIcon, PackageIcon, PieChartIcon, ReceiptIcon, ShieldCheckIcon, ShoppingCartIcon, UploadIcon, UsersIcon, WalletIcon, XIcon } from
 'lucide-react';
 import {
   MONTH, STATUS, TODAY, WH, baseOf, dateTH, dateTimeTH, docStatus, dueOf, monthTH, netOf, num, payTotals, peakSnapshotFreshness, thb, vatOf, whtOf } from
@@ -11,14 +11,14 @@ import type { AppData, PeakSnapshot, Tone } from './data';
 import {
   acctName, aging, ap, apList, ar, arList, bankSuggestion, bookValue, cash, cashForecast30, cashOf, contactName, depMonthly, depPerMonth, draftJournals,
   empName, invValue, ledger, lowStock, overdueList, pendingList, pl, projName, projectPL, series, stockOf, trialBalance,
-  DEMO_STORAGE_KEY, PEAK_SESSION_KEY, unmatchedList, useStore, vatReport, whtRows } from
+  DEMO_STORAGE_KEY, PEAK_SESSION_DEADLINE_KEY, PEAK_SESSION_KEY, peakSessionRemainingLabel, unmatchedList, useStore, vatReport, whtRows } from
 './store';
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
 import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakSnapshotAssurance, peakStatementWorkspace, peakYearTH, selectPeakMonths } from './peak-view';
 import type { PeakPeriod } from './peak-view';
-import { buildTableHash, parseTableRoute } from './table-route';
+import { buildTableHash, parseTableRoute, safeWorkbenchModuleId } from './table-route';
 import type { TableFilters } from './table-route';
 
 declare const __BUILD_AT__: string;
@@ -1478,7 +1478,7 @@ function readPeakPeriod(): PeakPeriod {
 
 function Workbench() {
   const actor = 'ผู้ตรวจสอบ PEAK';
-  const { data, actions, toasts, storageIssue, lastPeakMeta } = useStore(actor);
+  const { data, actions, toasts, storageIssue, lastPeakMeta, peakSessionStatus, peakSessionRemainingMs, peakSessionEnded } = useStore(actor);
   const peakSnapshot = data.peakSnapshot;
   const peakMode = Boolean(peakSnapshot);
   const peakFreshness = peakSnapshot ? peakSnapshotFreshness(peakSnapshot.asOf) : undefined;
@@ -1507,7 +1507,10 @@ function Workbench() {
   const drawerRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const pageTitleRef = useRef<HTMLHeadingElement>(null);
-  const m = useMemo(() => availableModules.find((x) => x.id === active) ?? availableModules[0], [active, availableModules]);
+  const m = useMemo(() => {
+    const safeActive = safeWorkbenchModuleId(active, Boolean(peakSnapshot), availableModules.map((module) => module.id));
+    return availableModules.find((x) => x.id === safeActive) ?? availableModules[0];
+  }, [active, availableModules, peakSnapshot]);
   const moduleCols = useMemo(() => typeof m.cols === 'function' ? m.cols(data) : m.cols ?? [], [m, data]);
   const moduleFilters = useMemo(() => m.filters ? m.filters(data) : [], [m, data]);
   const normalizedTableFilters = useMemo(() => {
@@ -1565,13 +1568,21 @@ function Workbench() {
 
   useEffect(() => {
     const requested = window.location.hash.replace(/^#\/?/, '').split('?')[0] || 'dashboard';
+    if (!peakSnapshot) {
+      if (requested !== 'dashboard') window.history.replaceState(null, '', '#dashboard');
+      setActive('dashboard');
+      setTableQuery('');
+      setTableFilters({});
+      setOpen(false);
+      return;
+    }
     if (availableModules.some((item) => item.id === active) && availableModules.some((item) => item.id === requested)) return;
     window.history.replaceState(null, '', '#dashboard');
     setActive('dashboard');
     setTableQuery('');
     setTableFilters({});
     setOpen(false);
-  }, [active, availableModules]);
+  }, [active, availableModules, peakSnapshot]);
 
   useEffect(() => {
     document.title = peakMode ? `${m.th} | Siam ERP` : 'ภาพรวมธุรกิจ | Siam ERP';
@@ -1665,6 +1676,11 @@ function Workbench() {
         <section className="flex items-start justify-center bg-slate-50 px-5 py-8 text-slate-950 sm:px-8 sm:py-12 lg:items-center" aria-labelledby="peak-gate-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.42)] sm:p-8">
             <h2 id="peak-gate-title" className="text-[26px] font-semibold tracking-[-0.025em]">เปิดข้อมูล</h2>
+            {peakSessionEnded === 'idle' ?
+            <div className="mt-4 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900" role="status">
+                <LockKeyholeIcon className="h-4 w-4 shrink-0" />
+                <span><strong>ล็อกแล้ว</strong> · เปิดไฟล์อีกครั้ง</span>
+              </div> : null}
             <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
               <UploadIcon className="h-4 w-4" />เปิดไฟล์ PEAK
             </button>
@@ -1773,6 +1789,11 @@ function Workbench() {
           role={peakFreshness.status === 'stale' ? 'alert' : 'status'}>
           {peakFreshness.status === 'fresh' ? <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" /> : <AlertCircleIcon className="h-4 w-4 shrink-0" />}
           <span className="min-w-0 flex-1"><strong>{peakFreshness.label}</strong> · ข้อมูลถึง {dateTH(peakSnapshot.asOf.slice(0, 10))} · ตรวจ {peakStamp(peakSnapshot.capturedAt)}</span>
+          {peakSessionStatus === 'warning' ?
+          <button type="button" data-peak-session-action onClick={() => actions.extendPeakSession()} aria-label="ต่อเวลาการใช้งาน" title="ข้อมูลจะถูกลบเมื่อหมดเวลา" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-amber-300 bg-white/80 px-2.5 font-semibold text-amber-900 shadow-[0_6px_18px_-14px_rgba(120,53,15,0.8)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700">
+              <LockKeyholeIcon className="h-4 w-4" />ต่อเวลา <span aria-hidden="true">· {peakSessionRemainingLabel(peakSessionRemainingMs)}</span>
+            </button> :
+          <span className="hidden items-center gap-1.5 opacity-75 sm:inline-flex" title="ข้อมูลจะถูกลบหลังไม่ใช้งาน 15 นาที"><LockKeyholeIcon className="h-4 w-4" />ล็อกอัตโนมัติ</span>}
           <button type="button" onClick={() => setConfirmSignOut(true)} className="inline-flex min-h-11 items-center px-1 font-semibold underline decoration-current/30 underline-offset-2 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current">ลบข้อมูล</button>
         </div> : null}
 
@@ -1865,7 +1886,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode;}, ErrorB
         <p className="mt-2 text-sm leading-6 text-slate-600">ลองโหลดหน้าใหม่ หรือคืนค่าข้อมูลหากไฟล์ที่บันทึกในเบราว์เซอร์เสียหาย</p>
         <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
           <button type="button" onClick={() => window.location.reload()} className="h-11 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">โหลดใหม่</button>
-          <button type="button" onClick={() => { try { localStorage.removeItem(DEMO_STORAGE_KEY); sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* continue with reload */ } window.location.reload(); }} className="h-11 rounded-xl border border-rose-200 bg-white px-5 text-sm font-semibold text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2">ล้างข้อมูลในแท็บ</button>
+          <button type="button" onClick={() => { try { localStorage.removeItem(DEMO_STORAGE_KEY); sessionStorage.removeItem(PEAK_SESSION_KEY); sessionStorage.removeItem(PEAK_SESSION_DEADLINE_KEY); } catch { /* continue with reload */ } window.location.reload(); }} className="h-11 rounded-xl border border-rose-200 bg-white px-5 text-sm font-semibold text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2">ล้างข้อมูลในแท็บ</button>
         </div>
         <p className="mt-3 text-[12px] text-slate-500">การล้างข้อมูลจะลบไฟล์ข้อมูล PEAK ออกจากแท็บนี้</p>
       </section>
