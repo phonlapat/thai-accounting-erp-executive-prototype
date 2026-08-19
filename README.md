@@ -8,6 +8,8 @@ An interactive Thai-language executive workbench for exploring accounting and ER
 
 The public app is **PEAK-only**. It does not display fictional invoices, balances, or operational records. Until a validated private snapshot is supplied, the app shows a zero-data access gate.
 
+The access gate always shows when the app was last deployed. After a successful import, the same browser also remembers only the snapshot's data date and inspection time so freshness is visible before the next sign-in; no company name, balance, document, or other financial field is retained with that history.
+
 Choose **เลือก snapshot PEAK** and load a validated schema-v3 snapshot. If there is no API connection, open PEAK, sign in, and ask Codex to perform the manual inspection and browser-local import. The read-only workspace includes Overview, Revenue, Expenses, Cash & Bank, Financial Statements, and Data Checks. The validated snapshot is kept only in the current browser tab, removed on exit or tab close, and never included in this public repository. Unknown fields are stripped before the snapshot reaches application state.
 
 Before opening, the importer shows a validation-backed review of freshness, history continuity, source coverage, captured rows, and bank evidence. Invalid pasted JSON cannot produce a ready state, and warnings remain visible in Data Checks after import.

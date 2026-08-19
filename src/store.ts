@@ -213,6 +213,8 @@ export interface PeakSnapshotMeta {
   capturedAt: string;
 }
 
+const PEAK_META_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
 export type BrowserStorageIssue = 'private-save' | 'private-clear' | 'history';
 
 export function peakMetaFromSnapshot(snapshot: AppData['peakSnapshot']): PeakSnapshotMeta | undefined {
@@ -223,8 +225,13 @@ export function peakMetaFromSnapshot(snapshot: AppData['peakSnapshot']): PeakSna
 export function isPeakSnapshotMeta(value: unknown): value is PeakSnapshotMeta {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<PeakSnapshotMeta>;
-  return typeof candidate.asOf === 'string' && Number.isFinite(Date.parse(candidate.asOf)) &&
-    typeof candidate.capturedAt === 'string' && Number.isFinite(Date.parse(candidate.capturedAt));
+  if (typeof candidate.asOf !== 'string' || typeof candidate.capturedAt !== 'string') return false;
+  const asOf = Date.parse(candidate.asOf);
+  const capturedAt = Date.parse(candidate.capturedAt);
+  const now = Date.now();
+  return Number.isFinite(asOf) && Number.isFinite(capturedAt) &&
+    asOf <= capturedAt + PEAK_META_CLOCK_SKEW_MS &&
+    capturedAt <= now + PEAK_META_CLOCK_SKEW_MS;
 }
 
 function readPeakSnapshotMeta(): PeakSnapshotMeta | undefined {
@@ -232,7 +239,13 @@ function readPeakSnapshotMeta(): PeakSnapshotMeta | undefined {
     const raw = localStorage.getItem(PEAK_META_KEY);
     if (!raw) return undefined;
     const parsed = JSON.parse(raw) as unknown;
-    if (isPeakSnapshotMeta(parsed)) return parsed;
+    if (isPeakSnapshotMeta(parsed)) {
+      const safeMeta = { asOf: parsed.asOf, capturedAt: parsed.capturedAt };
+      if (raw !== JSON.stringify(safeMeta)) {
+        try { localStorage.setItem(PEAK_META_KEY, JSON.stringify(safeMeta)); } catch { /* valid history remains readable */ }
+      }
+      return safeMeta;
+    }
     localStorage.removeItem(PEAK_META_KEY);
   } catch {
     /* optional, non-financial browser history */

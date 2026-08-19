@@ -1561,26 +1561,29 @@ function Workbench() {
     return (
       <main className="grid min-h-screen bg-slate-950 text-white lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.72fr)]">
         <section className="flex flex-col px-5 py-5 sm:px-9 sm:py-7 lg:min-h-screen lg:px-14 lg:py-10 xl:px-20" aria-label="Siam ERP">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center">
             <div className="flex items-center gap-3">
               <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
               <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[12px] text-slate-400">ภาพรวมผู้บริหาร</p></div>
             </div>
-            <p className="text-[11.5px] tabular-nums text-slate-400">อัปเดตระบบ {peakStamp(__BUILD_AT__)}</p>
           </div>
           <div className="mt-10 max-w-2xl pb-8 sm:mt-16 lg:my-auto lg:py-12">
             <h1 className="text-balance text-[clamp(2.35rem,5vw,4.8rem)] font-semibold leading-[1.04] tracking-[-0.04em]">ภาพรวมธุรกิจ</h1>
             <p className="mt-4 max-w-[45ch] text-[15px] leading-6 text-slate-300">PEAK · เปิดจากไฟล์ · อ่านอย่างเดียว</p>
 
-            <dl className="mt-10 max-w-xl border-y border-slate-800 sm:mt-12">
-              <div className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
-                <dt className="flex items-center gap-2 text-[13px] text-slate-400"><HistoryIcon className="h-4 w-4" />ข้อมูลล่าสุด</dt>
-                <dd className="text-[14px] font-semibold text-white sm:text-right">
+            <dl className="mt-10 grid max-w-2xl border-y border-slate-800 sm:mt-12 sm:grid-cols-2 sm:divide-x sm:divide-slate-800">
+              <div className="py-4 sm:pr-6">
+                <dt className="text-[12px] font-medium text-slate-400">อัปเดตระบบ</dt>
+                <dd className="mt-1 text-[14px] font-semibold tabular-nums text-white">{peakStamp(__BUILD_AT__)}</dd>
+              </div>
+              <div className="border-t border-slate-800 py-4 sm:border-t-0 sm:pl-6">
+                <dt className="flex items-center gap-2 text-[12px] font-medium text-slate-400"><HistoryIcon className="h-4 w-4" />ข้อมูล PEAK ล่าสุด</dt>
+                <dd className="mt-1 text-[14px] font-semibold text-white">
                   {lastPeakMeta ? <>
                     <span>ถึง {dateTH(lastPeakMeta.asOf.slice(0, 10))}</span>
                     {lastPeakFreshness ? <span className={cx('ml-2 text-[12px] font-medium', lastPeakFreshness.status === 'fresh' ? 'text-emerald-300' : lastPeakFreshness.status === 'aging' ? 'text-amber-300' : 'text-rose-300')}>· {lastPeakFreshness.label}</span> : null}
-                    <span className="mt-0.5 block text-[11.5px] font-normal text-slate-400">ตรวจล่าสุด {peakStamp(lastPeakMeta.capturedAt)}</span>
-                  </> : 'ยังไม่เคยเปิด'}
+                    <span className="mt-0.5 block text-[11.5px] font-normal tabular-nums text-slate-400">ตรวจ {peakStamp(lastPeakMeta.capturedAt)}</span>
+                  </> : <span className="text-slate-300">ยังไม่มีประวัติบนเครื่องนี้</span>}
                 </dd>
               </div>
             </dl>
@@ -1592,7 +1595,7 @@ function Workbench() {
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.42)] sm:p-8">
             <h2 id="peak-gate-title" className="text-[26px] font-semibold tracking-[-0.025em]">เปิดข้อมูล</h2>
             <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-              <UploadIcon className="h-4 w-4" />เลือกไฟล์ PEAK
+              <UploadIcon className="h-4 w-4" />เปิดไฟล์ PEAK
             </button>
             {storageIssueText ? <div className="mt-4 flex items-start gap-2 text-[12px] leading-5 text-rose-700" role="alert">
               <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
@@ -1602,7 +1605,7 @@ function Workbench() {
               <span>ตัวเลขอยู่เฉพาะในแท็บนี้</span>
             </div>}
             <div className="mt-6 border-t border-slate-200 pt-3">
-              <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK</a>
+              <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เข้าสู่ PEAK</a>
             </div>
           </div>
         </section>

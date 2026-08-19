@@ -31,5 +31,7 @@ describe('browser storage boundary', () => {
     expect(JSON.stringify(meta)).not.toContain('123456');
     expect(isPeakSnapshotMeta(meta)).toBe(true);
     expect(isPeakSnapshotMeta({ asOf: 'invalid', capturedAt: snapshot.capturedAt })).toBe(false);
+    expect(isPeakSnapshotMeta({ asOf: '2026-08-18T16:02:00+07:00', capturedAt: snapshot.capturedAt })).toBe(false);
+    expect(isPeakSnapshotMeta({ asOf: snapshot.asOf, capturedAt: '2099-08-17T16:02:00+07:00' })).toBe(false);
   });
 });
