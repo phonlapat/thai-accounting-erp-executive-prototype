@@ -676,13 +676,25 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
       clearPeakSnapshot: () =>
       mut((d) => {
         if (!d.peakSnapshot) {
-          notify('ขณะนี้ใช้ข้อมูลสาธิตอยู่', 'bad');
+          notify('ไม่มีข้อมูล PEAK ในแท็บนี้', 'bad');
           return d;
         }
         try { sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* unavailable storage */ }
-        notify('กลับมาใช้ข้อมูลสาธิตแล้ว');
+        notify('ลบข้อมูล PEAK จากแท็บแล้ว');
         return log({ ...d, peakSnapshot: undefined }, 'หยุดใช้ข้อมูล PEAK', 'ข้อมูล');
       }),
+
+      clearPeakHistory: () => {
+        try {
+          localStorage.removeItem(PEAK_META_KEY);
+          setLastPeakMeta(undefined);
+          setStorageIssue((current) => current === 'history' ? undefined : current);
+          notify('ล้างเวลาล่าสุดแล้ว');
+        } catch {
+          setStorageIssue('history');
+          notify('ล้างเวลาล่าสุดไม่ได้', 'bad');
+        }
+      },
 
       reset: () => {
         try {
