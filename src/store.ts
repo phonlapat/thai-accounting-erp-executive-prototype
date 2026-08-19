@@ -4,7 +4,7 @@ import {
   MONTHS, TODAY, addDays, baseOf, dueOf, docStatus, monthTH, netOf, nextNo, payItems, payTotals,
   sanitizePeakSnapshot, seed, thb, uid, vatOf, whtOf } from
 './data';
-import type { AppData, Asset, BankTxn, Doc, Journal, JLine, Product } from './data';
+import type { AppData, Asset, BankTxn, Doc, Journal, JLine, PeakSnapshot, Product } from './data';
 
 /* ---------------- lookups ---------------- */
 export const contactName = (d: AppData, id: string) => d.contacts.find((c) => c.id === id)?.nameTh ?? '—';
@@ -207,6 +207,9 @@ export interface Toast {id: string;text: string;tone: 'ok' | 'bad';}
 export const DEMO_STORAGE_KEY = 'siam-erp-th-v1';
 export const PEAK_SESSION_KEY = 'siam-erp-peak-v3';
 export const PEAK_META_KEY = 'siam-erp-peak-meta-v1';
+export const PEAK_SESSION_DEADLINE_KEY = 'siam-erp-peak-deadline-v1';
+export const PEAK_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+export const PEAK_IDLE_WARNING_MS = 2 * 60 * 1000;
 
 export interface PeakSnapshotMeta {
   asOf: string;
@@ -214,8 +217,25 @@ export interface PeakSnapshotMeta {
 }
 
 const PEAK_META_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const PEAK_ACTIVITY_WRITE_INTERVAL_MS = 30 * 1000;
 
 export type BrowserStorageIssue = 'private-save' | 'private-clear' | 'history';
+export type PeakSessionStatus = 'active' | 'warning' | 'expired';
+
+export function isPeakSessionDeadline(value: unknown, now = Date.now()): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 &&
+    value <= now + PEAK_IDLE_TIMEOUT_MS + PEAK_META_CLOCK_SKEW_MS;
+}
+
+export function peakSessionStatus(deadline: number | undefined, now = Date.now()): PeakSessionStatus {
+  if (!deadline || deadline <= now) return 'expired';
+  return deadline - now <= PEAK_IDLE_WARNING_MS ? 'warning' : 'active';
+}
+
+export function peakSessionRemainingLabel(remainingMs: number): string {
+  const seconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
 
 export function peakMetaFromSnapshot(snapshot: AppData['peakSnapshot']): PeakSnapshotMeta | undefined {
   if (!snapshot) return undefined;
@@ -272,17 +292,35 @@ export function demoDataForStorage(data: AppData): AppData {
   return { ...data, peakSnapshot: undefined };
 }
 
-interface LoadResult {data: AppData;recoveredStorage: boolean;}
+interface LoadResult {data: AppData;recoveredStorage: boolean;peakDeadline?: number;}
 
-function readSessionPeak(): AppData['peakSnapshot'] {
+interface SessionPeakResult {snapshot?: PeakSnapshot;deadline?: number;}
+
+function clearPrivateSessionStorage() {
+  sessionStorage.removeItem(PEAK_SESSION_KEY);
+  sessionStorage.removeItem(PEAK_SESSION_DEADLINE_KEY);
+}
+
+function readSessionPeak(now = Date.now()): SessionPeakResult {
   try {
     const raw = sessionStorage.getItem(PEAK_SESSION_KEY);
     const snapshot = raw ? sanitizePeakSnapshot(JSON.parse(raw) as unknown) : undefined;
-    if (!snapshot && raw) sessionStorage.removeItem(PEAK_SESSION_KEY);
-    return snapshot;
+    if (!snapshot) {
+      if (raw || sessionStorage.getItem(PEAK_SESSION_DEADLINE_KEY)) clearPrivateSessionStorage();
+      return {};
+    }
+    const deadlineRaw = sessionStorage.getItem(PEAK_SESSION_DEADLINE_KEY);
+    const parsedDeadline = deadlineRaw === null ? undefined : Number(deadlineRaw);
+    if (parsedDeadline !== undefined && (!isPeakSessionDeadline(parsedDeadline, now) || peakSessionStatus(parsedDeadline, now) === 'expired')) {
+      clearPrivateSessionStorage();
+      return {};
+    }
+    const deadline = parsedDeadline ?? now + PEAK_IDLE_TIMEOUT_MS;
+    if (deadlineRaw === null) sessionStorage.setItem(PEAK_SESSION_DEADLINE_KEY, String(deadline));
+    return { snapshot, deadline };
   } catch {
-    try { sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* unavailable storage */ }
-    return undefined;
+    try { clearPrivateSessionStorage(); } catch { /* unavailable storage */ }
+    return {};
   }
 }
 
@@ -299,8 +337,10 @@ function load(): LoadResult {
           try { sessionStorage.setItem(PEAK_SESSION_KEY, JSON.stringify(legacyPeak)); } catch { /* continue without private data */ }
           try { localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(demoData)); } catch { /* cleaned on next successful save */ }
         }
-        const peakSnapshot = readSessionPeak() ?? legacyPeak;
-        return { data: peakSnapshot ? { ...demoData, peakSnapshot } : demoData, recoveredStorage };
+        const sessionPeak = readSessionPeak();
+        const peakSnapshot = sessionPeak.snapshot ?? legacyPeak;
+        const peakDeadline = peakSnapshot ? sessionPeak.deadline ?? Date.now() + PEAK_IDLE_TIMEOUT_MS : undefined;
+        return { data: peakSnapshot ? { ...demoData, peakSnapshot } : demoData, recoveredStorage, peakDeadline };
       }
       recoveredStorage = true;
     }
@@ -308,8 +348,12 @@ function load(): LoadResult {
     recoveredStorage = true;
   }
   const base = seed();
-  const peakSnapshot = readSessionPeak();
-  return { data: peakSnapshot ? { ...base, peakSnapshot } : base, recoveredStorage };
+  const sessionPeak = readSessionPeak();
+  return {
+    data: sessionPeak.snapshot ? { ...base, peakSnapshot: sessionPeak.snapshot } : base,
+    recoveredStorage,
+    peakDeadline: sessionPeak.deadline
+  };
 }
 
 export function useStore(actor = 'ผู้ใช้เดโม') {
@@ -321,7 +365,29 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
   const [storageIssue, setStorageIssue] = useState<BrowserStorageIssue | undefined>();
   const [lastPeakMeta, setLastPeakMeta] = useState<PeakSnapshotMeta | undefined>(() => readPeakSnapshotMeta());
   const [recoveredStorage] = useState(initial.current.recoveredStorage);
+  const [peakDeadline, setPeakDeadline] = useState<number | undefined>(initial.current.peakDeadline);
+  const peakDeadlineRef = useRef(peakDeadline);
+  const [peakClock, setPeakClock] = useState(Date.now);
+  const [peakSessionEnded, setPeakSessionEnded] = useState<'idle' | undefined>();
   const toastTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+
+  const updatePeakDeadline = useCallback((deadline: number | undefined) => {
+    peakDeadlineRef.current = deadline;
+    setPeakDeadline(deadline);
+    setPeakClock(Date.now());
+    try {
+      if (deadline) sessionStorage.setItem(PEAK_SESSION_DEADLINE_KEY, String(deadline));
+      else sessionStorage.removeItem(PEAK_SESSION_DEADLINE_KEY);
+    } catch {
+      setStorageIssue(deadline ? 'private-save' : 'private-clear');
+    }
+  }, []);
+
+  const refreshPeakDeadline = useCallback((now = Date.now()) => {
+    const deadline = now + PEAK_IDLE_TIMEOUT_MS;
+    updatePeakDeadline(deadline);
+    return deadline;
+  }, [updatePeakDeadline]);
 
   useEffect(() => {
     let privateIssue: BrowserStorageIssue | undefined;
@@ -679,9 +745,11 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
           notify('ไฟล์ PEAK ไม่ถูกต้องหรือเป็นคนละเวอร์ชัน', 'bad');
           return false;
         }
+        setPeakSessionEnded(undefined);
+        refreshPeakDeadline();
         mut((d) => {
           notify(`ใช้ข้อมูล PEAK ของ ${snapshot.companyName} แล้ว`);
-          return log({ ...d, peakSnapshot: snapshot }, `นำเข้าข้อมูล PEAK ณ ${snapshot.asOf}`, 'ข้อมูล');
+          return { ...d, peakSnapshot: snapshot };
         });
         return true;
       },
@@ -692,10 +760,27 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
           notify('ไม่มีข้อมูล PEAK ในแท็บนี้', 'bad');
           return d;
         }
-        try { sessionStorage.removeItem(PEAK_SESSION_KEY); } catch { /* unavailable storage */ }
+        try { clearPrivateSessionStorage(); } catch { /* unavailable storage */ }
+        updatePeakDeadline(undefined);
+        setPeakSessionEnded(undefined);
         notify('ลบข้อมูล PEAK จากแท็บแล้ว');
-        return log({ ...d, peakSnapshot: undefined }, 'หยุดใช้ข้อมูล PEAK', 'ข้อมูล');
+        return { ...d, peakSnapshot: undefined };
       }),
+
+      lockPeakSnapshot: () =>
+      mut((d) => {
+        if (!d.peakSnapshot) return d;
+        try { clearPrivateSessionStorage(); } catch { /* unavailable storage */ }
+        updatePeakDeadline(undefined);
+        setPeakSessionEnded('idle');
+        return { ...d, peakSnapshot: undefined };
+      }),
+
+      extendPeakSession: () => {
+        if (!dataRef.current.peakSnapshot) return;
+        refreshPeakDeadline();
+        notify('ต่อเวลาการใช้งานแล้ว');
+      },
 
       clearPeakHistory: () => {
         try {
@@ -713,7 +798,7 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
         try {
           localStorage.removeItem(DEMO_STORAGE_KEY);
           localStorage.removeItem(PEAK_META_KEY);
-          sessionStorage.removeItem(PEAK_SESSION_KEY);
+          clearPrivateSessionStorage();
         } catch {
 
           /* ignore */}
@@ -721,12 +806,62 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
         dataRef.current = next;
         setData(next);
         setLastPeakMeta(undefined);
+        setPeakSessionEnded(undefined);
+        updatePeakDeadline(undefined);
         notify('คืนค่าข้อมูลตัวอย่างเรียบร้อย');
       }
     };
-  }, [actor, notify]);
+  }, [actor, notify, refreshPeakDeadline, updatePeakDeadline]);
 
-  return { data, actions, toasts, storageIssue, recoveredStorage, lastPeakMeta };
+  useEffect(() => {
+    if (!data.peakSnapshot) return;
+    if (!peakDeadlineRef.current) refreshPeakDeadline();
+
+    const check = () => {
+      const now = Date.now();
+      setPeakClock(now);
+      if (peakSessionStatus(peakDeadlineRef.current, now) === 'expired') actions.lockPeakSnapshot();
+    };
+    const registerActivity = (event?: Event) => {
+      if (event?.target instanceof Element && event.target.closest('[data-peak-session-action]')) return;
+      const now = Date.now();
+      const current = peakDeadlineRef.current;
+      if (!current || peakSessionStatus(current, now) === 'expired') {
+        actions.lockPeakSnapshot();
+        return;
+      }
+      if (current - now <= PEAK_IDLE_TIMEOUT_MS - PEAK_ACTIVITY_WRITE_INTERVAL_MS) refreshPeakDeadline(now);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') registerActivity();
+      else check();
+    };
+    const timer = window.setInterval(check, 1000);
+    window.addEventListener('pointerdown', registerActivity, { passive: true });
+    window.addEventListener('keydown', registerActivity);
+    window.addEventListener('scroll', registerActivity, { passive: true, capture: true });
+    window.addEventListener('focus', registerActivity);
+    document.addEventListener('visibilitychange', onVisibility);
+    check();
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('pointerdown', registerActivity);
+      window.removeEventListener('keydown', registerActivity);
+      window.removeEventListener('scroll', registerActivity, true);
+      window.removeEventListener('focus', registerActivity);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [actions, data.peakSnapshot, refreshPeakDeadline]);
+
+  const currentPeakSessionStatus = data.peakSnapshot ? peakSessionStatus(peakDeadline, peakClock) : 'expired';
+  const peakSessionRemainingMs = data.peakSnapshot && peakDeadline ? Math.max(0, peakDeadline - peakClock) : 0;
+
+  return {
+    data, actions, toasts, storageIssue, recoveredStorage, lastPeakMeta,
+    peakSessionStatus: currentPeakSessionStatus,
+    peakSessionRemainingMs,
+    peakSessionEnded
+  };
 }
 
 export type Actions = ReturnType<typeof useStore>['actions'];

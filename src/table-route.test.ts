@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildTableHash, parseTableRoute } from './table-route';
+import { buildTableHash, parseTableRoute, safeWorkbenchModuleId } from './table-route';
 
 describe('table route state', () => {
   it('round-trips a search and deterministic filters', () => {
@@ -14,5 +14,13 @@ describe('table route state', () => {
   it('ignores empty filters and keeps an empty route clean', () => {
     expect(buildTableHash('peak-finance', '', { type: '', q: 'ignored' })).toBe('#peak-finance');
     expect(parseTableRoute('#peak-finance')).toEqual({ query: '', filters: {} });
+  });
+
+  it('falls back before a cleared private module can render', () => {
+    const available = ['dashboard', 'peak-income', 'peak-expenses'];
+
+    expect(safeWorkbenchModuleId('peak-income', true, available)).toBe('peak-income');
+    expect(safeWorkbenchModuleId('peak-income', false, available)).toBe('dashboard');
+    expect(safeWorkbenchModuleId('peak-ledger', true, available)).toBe('dashboard');
   });
 });
