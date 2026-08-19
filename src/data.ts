@@ -68,6 +68,16 @@ export interface PeakBankReconciliationItem {
 export interface PeakBankReconciliationEvidence {
   accountId: string;coverage: 'full' | 'sample';items: PeakBankReconciliationItem[];
 }
+export type PeakStatementMetric = 'ytd_revenue' | 'ytd_expenses' | 'cash_and_equivalents' | 'total_assets' | 'total_liabilities' | 'equity';
+export type PeakStatementEntrySource = 'income' | 'expense' | 'journal' | 'opening' | 'adjustment';
+export interface PeakStatementEntry {
+  id: string;date: string;journalNo: string;accountCode: string;accountName: string;
+  description: string;amount: number;source: PeakStatementEntrySource;documentNo?: string;
+}
+export interface PeakStatementEvidence {
+  id: string;metric: PeakStatementMetric;label: string;periodStart?: string;periodEnd: string;
+  amount: number;coverage: 'full' | 'sample';entries: PeakStatementEntry[];
+}
 export interface PeakSourceFreshness {
   key: string;label: string;asOf: string;scope: string;
 }
@@ -108,6 +118,7 @@ export interface PeakSnapshot {
   };
   financeAccounts: PeakFinanceAccount[];
   bankReconciliation?: PeakBankReconciliationEvidence[];
+  statementEvidence?: PeakStatementEvidence[];
   recentIncomeRows: PeakRecordRow[];
   recentExpenseRows: PeakRecordRow[];
   sources: PeakSourceFreshness[];
@@ -135,6 +146,11 @@ const finite = (value: unknown): value is number => typeof value === 'number' &&
 const nonNegative = (value: unknown) => finite(value) && value >= 0;
 const wholeNonNegative = (value: unknown) => Number.isInteger(value) && Number(value) >= 0;
 const near = (left: number, right: number) => Math.abs(left - right) <= 0.02;
+const isoDay = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value;
+};
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 /** Validate imported PEAK snapshots before they reach application state. */
@@ -147,6 +163,7 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
   if (typeof snapshot.capturedAt !== 'string' || !Number.isFinite(Date.parse(snapshot.capturedAt))) return false;
   const asOfTime = Date.parse(snapshot.asOf);
   const capturedTime = Date.parse(snapshot.capturedAt);
+  const asOfDayTH = new Date(asOfTime + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const capturedDayTH = new Date(capturedTime + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
   if (asOfTime > now + MAX_CLOCK_SKEW_MS || capturedTime > now + MAX_CLOCK_SKEW_MS) return false;
   if (asOfTime > capturedTime + MAX_CLOCK_SKEW_MS) return false;
@@ -189,6 +206,54 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
   if (!positionNonNegative.every(nonNegative) || !finite(snapshot.financialPosition.cashAndEquivalents)) return false;
   if (!near(snapshot.financialPosition.currentAssets + snapshot.financialPosition.nonCurrentAssets, snapshot.financialPosition.totalAssets)) return false;
   if (!near(snapshot.financialPosition.totalLiabilities + snapshot.financialPosition.equity, snapshot.financialPosition.totalAssets)) return false;
+  if (snapshot.statementEvidence !== undefined) {
+    if (!Array.isArray(snapshot.statementEvidence) || snapshot.statementEvidence.length < 1 || snapshot.statementEvidence.length > 6) return false;
+    const statementMetrics: PeakStatementMetric[] = ['ytd_revenue', 'ytd_expenses', 'cash_and_equivalents', 'total_assets', 'total_liabilities', 'equity'];
+    const statementSources: PeakStatementEntrySource[] = ['income', 'expense', 'journal', 'opening', 'adjustment'];
+    const expectedAmounts: Record<PeakStatementMetric, number> = {
+      ytd_revenue: snapshot.ytd.revenue,
+      ytd_expenses: snapshot.ytd.expenses,
+      cash_and_equivalents: snapshot.financialPosition.cashAndEquivalents,
+      total_assets: snapshot.financialPosition.totalAssets,
+      total_liabilities: snapshot.financialPosition.totalLiabilities,
+      equity: snapshot.financialPosition.equity
+    };
+    const groupIds: string[] = [];
+    const metrics: PeakStatementMetric[] = [];
+    const entryIds: string[] = [];
+    let entryCount = 0;
+    for (const evidence of snapshot.statementEvidence) {
+      if (!evidence || typeof evidence.id !== 'string' || !evidence.id.trim() || evidence.id.length > 80 ||
+        !statementMetrics.includes(evidence.metric) || typeof evidence.label !== 'string' || !evidence.label.trim() || evidence.label.length > 120 ||
+        !isoDay(evidence.periodEnd) || evidence.periodEnd !== asOfDayTH ||
+        !finite(evidence.amount) || !near(evidence.amount, expectedAmounts[evidence.metric]) ||
+        !['full', 'sample'].includes(evidence.coverage) || !Array.isArray(evidence.entries) ||
+        evidence.entries.length < 1 || evidence.entries.length > 200) return false;
+      const isYearToDate = evidence.metric === 'ytd_revenue' || evidence.metric === 'ytd_expenses';
+      const periodStart = evidence.periodStart;
+      if (isYearToDate) {
+        if (periodStart !== `${evidence.periodEnd.slice(0, 4)}-01-01`) return false;
+      } else if (periodStart !== undefined) return false;
+      groupIds.push(evidence.id);
+      metrics.push(evidence.metric);
+      entryCount += evidence.entries.length;
+      if (entryCount > 400) return false;
+      for (const entry of evidence.entries) {
+        if (!entry || typeof entry.id !== 'string' || !entry.id.trim() || entry.id.length > 100 ||
+          !isoDay(entry.date) || entry.date > evidence.periodEnd || entry.date > capturedDayTH ||
+          (isYearToDate && periodStart !== undefined && entry.date < periodStart) ||
+          typeof entry.journalNo !== 'string' || !entry.journalNo.trim() || entry.journalNo.length > 80 ||
+          typeof entry.accountCode !== 'string' || !entry.accountCode.trim() || entry.accountCode.length > 40 ||
+          typeof entry.accountName !== 'string' || !entry.accountName.trim() || entry.accountName.length > 160 ||
+          typeof entry.description !== 'string' || !entry.description.trim() || entry.description.length > 240 ||
+          !finite(entry.amount) || entry.amount === 0 || !statementSources.includes(entry.source) ||
+          (entry.documentNo !== undefined && (typeof entry.documentNo !== 'string' || !entry.documentNo.trim() || entry.documentNo.length > 80))) return false;
+        entryIds.push(entry.id);
+      }
+      if (evidence.coverage === 'full' && !near(evidence.entries.reduce((sum, entry) => sum + entry.amount, 0), evidence.amount)) return false;
+    }
+    if (new Set(groupIds).size !== groupIds.length || new Set(metrics).size !== metrics.length || new Set(entryIds).size !== entryIds.length) return false;
+  }
   const channelMeasures = [snapshot.cashChannels.total, snapshot.cashChannels.cash, snapshot.cashChannels.bank, snapshot.cashChannels.eWallet];
   if (!channelMeasures.every(finite) || typeof snapshot.cashChannels.reconciliationRequired !== 'boolean') return false;
   if (!near(snapshot.cashChannels.cash + snapshot.cashChannels.bank + snapshot.cashChannels.eWallet, snapshot.cashChannels.total)) return false;
@@ -230,7 +295,7 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
       if (evidence.coverage === 'sample' && account.unmatchedCount !== undefined && evidence.items.length > account.unmatchedCount) return false;
       for (const item of evidence.items) {
         if (!item || typeof item.id !== 'string' || !item.id.trim() || item.id.length > 100 ||
-          !/^\d{4}-\d{2}-\d{2}$/.test(item.date) || item.date > capturedDayTH ||
+          !isoDay(item.date) || item.date > capturedDayTH ||
           typeof item.description !== 'string' || !item.description.trim() || item.description.length > 200 ||
           !['inflow', 'outflow'].includes(item.direction) || !finite(item.amount) || item.amount <= 0 ||
           (item.reference !== undefined && (typeof item.reference !== 'string' || !item.reference.trim() || item.reference.length > 100))) return false;
@@ -240,7 +305,7 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
           if (!candidate || !['income', 'expense', 'journal'].includes(candidate.kind) ||
             typeof candidate.documentNo !== 'string' || !candidate.documentNo.trim() || candidate.documentNo.length > 80 ||
             (candidate.party !== undefined && (typeof candidate.party !== 'string' || !candidate.party.trim() || candidate.party.length > 200)) ||
-            !/^\d{4}-\d{2}-\d{2}$/.test(candidate.issueDate) || candidate.issueDate > capturedDayTH ||
+            !isoDay(candidate.issueDate) || candidate.issueDate > capturedDayTH ||
             !finite(candidate.amount) || candidate.amount <= 0 || !['high', 'medium'].includes(candidate.confidence) ||
             !Array.isArray(candidate.signals) || candidate.signals.length < 2 || candidate.signals.length > 4 ||
             !candidate.signals.every((signal) => ['amount', 'date', 'reference', 'party'].includes(signal)) ||
@@ -256,7 +321,7 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
   }
   const validRecordRows = (rows: PeakRecordRow[] | undefined) => Array.isArray(rows) && rows.length <= 50 && rows.every((row) => Boolean(
     row && typeof row.id === 'string' && row.id.length <= 100 && typeof row.documentNo === 'string' && row.documentNo.trim() && row.documentNo.length <= 80 &&
-    typeof row.party === 'string' && row.party.trim() && row.party.length <= 200 && /^\d{4}-\d{2}-\d{2}$/.test(row.issueDate) &&
+    typeof row.party === 'string' && row.party.trim() && row.party.length <= 200 && isoDay(row.issueDate) && row.issueDate <= capturedDayTH &&
     nonNegative(row.amount) && ['paid', 'voided', 'outstanding', 'overdue', 'await_receipt'].includes(row.status) &&
     typeof row.activity === 'string' && row.activity.trim() && row.activity.length <= 120 &&
     typeof row.activityAt === 'string' && Number.isFinite(Date.parse(row.activityAt)) && Date.parse(row.activityAt) <= capturedTime + MAX_CLOCK_SKEW_MS
@@ -344,6 +409,19 @@ export function sanitizePeakSnapshot(value: unknown): PeakSnapshot | undefined {
               confidence: item.candidate.confidence, signals: item.candidate.signals.slice()
             }
           })
+        }))
+      }))
+    }),
+    ...(value.statementEvidence === undefined ? {} : {
+      statementEvidence: value.statementEvidence.map((evidence) => ({
+        id: evidence.id, metric: evidence.metric, label: evidence.label,
+        ...(evidence.periodStart === undefined ? {} : { periodStart: evidence.periodStart }),
+        periodEnd: evidence.periodEnd, amount: evidence.amount, coverage: evidence.coverage,
+        entries: evidence.entries.map((entry) => ({
+          id: entry.id, date: entry.date, journalNo: entry.journalNo,
+          accountCode: entry.accountCode, accountName: entry.accountName,
+          description: entry.description, amount: entry.amount, source: entry.source,
+          ...(entry.documentNo === undefined ? {} : { documentNo: entry.documentNo })
         }))
       }))
     }),
@@ -446,6 +524,8 @@ export const STATUS: Record<string, {th: string;en: string;tone: Tone;}> = {
   match_high: { th: 'น่าจะตรง', en: 'Likely match', tone: 'ok' },
   match_medium: { th: 'ควรตรวจ', en: 'Review', tone: 'warn' },
   match_none: { th: 'ยังไม่มีคู่', en: 'No match', tone: 'muted' },
+  statement_full: { th: 'หลักฐานครบ', en: 'Full evidence', tone: 'ok' },
+  statement_sample: { th: 'ตัวอย่าง', en: 'Sample', tone: 'warn' },
   active: { th: 'ใช้งาน', en: 'Active', tone: 'ok' },
   planning: { th: 'เตรียมงาน', en: 'Planning', tone: 'muted' },
   disposed: { th: 'จำหน่ายแล้ว', en: 'Disposed', tone: 'muted' },

@@ -20,6 +20,8 @@ The executive profit view supports 3, 6, and 12 months plus all imported history
 
 The optional account-level and transaction-level bank reconciliation fields are documented in [docs/PEAK-SNAPSHOT.md](docs/PEAK-SNAPSHOT.md). Missing evidence stays unknown and is never converted to zero, a completed status, or a suggested match.
 
+The snapshot may also include optional statement evidence. When present, each supported financial-statement line can open its underlying ledger entries and document references. Full evidence must reconcile to the visible statement amount; sampled evidence remains explicitly labelled and the entire traceability module stays hidden when no statement rows were inspected.
+
 > Prototype notice: this project is intended for private executive review. It is not production accounting software and should not be used for tax filing, payroll calculation, or authoritative financial reporting.
 
 This static app does not provide production authentication. The snapshot itself stays browser-local; real identity, roles, and automatic PEAK synchronization require a private backend.

@@ -89,3 +89,58 @@ A row requires a transaction date, description, direction, and positive amount. 
 ```
 
 The example is synthetic. Transaction descriptions, counterparties, references, and suggested documents are private financial data and must remain browser-local.
+
+## Financial-statement evidence
+
+`statementEvidence` is optional and appears only when the supporting PEAK ledger rows were visibly inspected. Legacy schema-v3 snapshots remain valid without it, and Siam ERP hides the entire traceability module when the field is absent.
+
+Each evidence group represents one current statement metric:
+
+| Metric | Snapshot amount |
+| --- | --- |
+| `ytd_revenue` | `ytd.revenue` |
+| `ytd_expenses` | `ytd.expenses` |
+| `cash_and_equivalents` | `financialPosition.cashAndEquivalents` |
+| `total_assets` | `financialPosition.totalAssets` |
+| `total_liabilities` | `financialPosition.totalLiabilities` |
+| `equity` | `financialPosition.equity` |
+
+The evidence group's `amount` must equal its mapped statement amount and `periodEnd` must equal the snapshot's Bangkok data date. Year-to-date metrics require `periodStart` on January 1 of that year. Point-in-time balance-sheet metrics omit `periodStart`.
+
+Coverage is explicit:
+
+- `full`: the signed contribution of every included ledger entry must sum to the statement-line amount.
+- `sample`: only inspected rows were captured. Their sum is not presented as the statement total and the interface warns that other entries may exist.
+
+Entry IDs are unique across the whole snapshot. Dates cannot fall after the reporting period or capture date. The importer accepts at most six statement lines, 200 rows per line, and 400 rows in total.
+
+```json
+{
+  "statementEvidence": [
+    {
+      "id": "statement-revenue",
+      "metric": "ytd_revenue",
+      "label": "รายได้รวม",
+      "periodStart": "2026-01-01",
+      "periodEnd": "2026-08-20",
+      "amount": 1500,
+      "coverage": "full",
+      "entries": [
+        {
+          "id": "ledger-example-1",
+          "date": "2026-08-20",
+          "journalNo": "JV-EXAMPLE-001",
+          "accountCode": "4100",
+          "accountName": "รายได้จากการขาย",
+          "description": "รายการตัวอย่าง",
+          "amount": 1500,
+          "source": "income",
+          "documentNo": "IV-EXAMPLE-001"
+        }
+      ]
+    }
+  ]
+}
+```
+
+The example is synthetic. Journal numbers, account names, descriptions, document references, amounts, and source records are private financial data and must remain browser-local.
