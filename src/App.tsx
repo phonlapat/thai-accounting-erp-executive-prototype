@@ -17,6 +17,8 @@ import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
 
+declare const __BUILD_AT__: string;
+
 interface Kpi {label: string;sub?: string;value: string;tone?: Tone;hint?: string;}
 interface Mod {
   id: string;th: string;en: string;group: string;desc: string;
@@ -857,7 +859,9 @@ const FINANCE: Mod[] = [
 
 
 const peakOf = (data: AppData) => data.peakSnapshot as PeakSnapshot;
-const peakStamp = (iso: string) => `${dateTH(iso.slice(0, 10))} · ${iso.slice(11, 16)}`;
+const peakStamp = (iso: string) => new Intl.DateTimeFormat('th-TH', {
+  day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok'
+}).format(new Date(iso)).replace(/ (\d{2}:\d{2})$/, ' · $1');
 const PEAK_RECORD_COLS: Col[] = [
   { key: 'documentNo', header: 'เลขที่', fmt: 'mono' },
   { key: 'party', header: 'คู่ค้า' },
@@ -1130,10 +1134,11 @@ function readCollapsed() {
 
 function Workbench() {
   const actor = 'ผู้ตรวจสอบ PEAK';
-  const { data, actions, toasts, storageIssue } = useStore(actor);
+  const { data, actions, toasts, storageIssue, lastPeakMeta } = useStore(actor);
   const peakSnapshot = data.peakSnapshot;
   const peakMode = Boolean(peakSnapshot);
   const peakFreshness = peakSnapshot ? peakSnapshotFreshness(peakSnapshot.capturedAt) : undefined;
+  const lastPeakFreshness = lastPeakMeta ? peakSnapshotFreshness(lastPeakMeta.capturedAt) : undefined;
   const availableModules = PEAK_MODULES;
   const availableGroups = PEAK_GROUPS;
   const [active, setActive] = useState(() => moduleFromLocation(availableModules));
@@ -1184,7 +1189,7 @@ function Workbench() {
   }, [active, availableModules]);
 
   useEffect(() => {
-    document.title = peakMode ? `${m.th} | Siam ERP` : 'เปิดข้อมูล PEAK | Siam ERP';
+    document.title = peakMode ? `${m.th} | Siam ERP` : 'ภาพรวมธุรกิจ | Siam ERP';
   }, [m.th, peakMode]);
 
   useEffect(() => {
@@ -1236,30 +1241,45 @@ function Workbench() {
 
   if (!peakSnapshot) {
     return (
-      <main className="grid min-h-screen bg-slate-950 text-white lg:grid-cols-[minmax(0,1fr)_minmax(440px,0.72fr)]">
-        <section className="flex flex-col px-5 py-5 sm:px-9 sm:py-7 lg:min-h-screen lg:px-14 lg:py-10" aria-label="Siam ERP">
+      <main className="grid min-h-screen bg-slate-950 text-white lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.72fr)]">
+        <section className="flex flex-col px-5 py-5 sm:px-9 sm:py-7 lg:min-h-screen lg:px-14 lg:py-10 xl:px-20" aria-label="Siam ERP">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
-            <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[12px] text-slate-400">ข้อมูลจาก PEAK</p></div>
+            <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[12px] text-slate-400">ภาพรวมผู้บริหาร</p></div>
           </div>
-          <div className="mt-9 max-w-2xl pb-6 sm:mt-12 lg:my-auto lg:py-14 lg:pb-20">
-            <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1 text-[12px] font-medium text-emerald-200">
-              <ShieldCheckIcon className="h-4 w-4" /> PEAK
-            </span>
-            <h1 className="mt-5 text-balance text-[clamp(2rem,4vw,4rem)] font-semibold leading-[1.08] tracking-[-0.035em]">เปิดข้อมูล PEAK</h1>
-            <p className="mt-4 max-w-[48ch] text-[15px] leading-6 text-slate-300">ข้อมูลจริง · อ่านอย่างเดียว · อยู่ในแท็บนี้</p>
+          <div className="mt-10 max-w-2xl pb-8 sm:mt-16 lg:my-auto lg:py-12">
+            <h1 className="text-balance text-[clamp(2.35rem,5vw,4.8rem)] font-semibold leading-[1.04] tracking-[-0.04em]">ภาพรวมธุรกิจ</h1>
+            <p className="mt-4 max-w-[45ch] text-[15px] leading-6 text-slate-300">PEAK · อ่านอย่างเดียว</p>
+
+            <dl className="mt-10 max-w-xl divide-y divide-slate-800 border-y border-slate-800 sm:mt-12">
+              <div className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
+                <dt className="flex items-center gap-2 text-[13px] text-slate-400"><HistoryIcon className="h-4 w-4" />ตรวจ PEAK ล่าสุด</dt>
+                <dd className="text-[14px] font-semibold text-white">
+                  {lastPeakMeta ? peakStamp(lastPeakMeta.capturedAt) : 'ยังไม่เคยตรวจ'}
+                  {lastPeakFreshness ? <span className={cx('ml-2 text-[12px] font-medium', lastPeakFreshness.status === 'fresh' ? 'text-emerald-300' : lastPeakFreshness.status === 'aging' ? 'text-amber-300' : 'text-rose-300')}>· {lastPeakFreshness.label}</span> : null}
+                </dd>
+              </div>
+              <div className="grid gap-1 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-6">
+                <dt className="text-[13px] text-slate-400">แอปล่าสุด</dt>
+                <dd className="text-[14px] font-semibold text-white">{peakStamp(__BUILD_AT__)}</dd>
+              </div>
+            </dl>
           </div>
         </section>
 
-        <section className="flex items-start justify-center bg-slate-50 px-5 py-6 text-slate-950 sm:px-8 sm:py-8 lg:items-center lg:py-10" aria-labelledby="peak-gate-title">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_18px_50px_-32px_rgba(15,23,42,0.38)] sm:p-8">
-            <h2 id="peak-gate-title" className="text-[24px] font-semibold tracking-[-0.025em]">เลือกไฟล์ PEAK</h2>
-            <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white transition-colors hover:bg-blue-800 active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-              <UploadIcon className="h-4 w-4" />เลือกไฟล์
+        <section className="flex items-start justify-center bg-slate-50 px-5 py-8 text-slate-950 sm:px-8 sm:py-12 lg:items-center" aria-labelledby="peak-gate-title">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.42)] sm:p-8">
+            <h2 id="peak-gate-title" className="text-[26px] font-semibold tracking-[-0.025em]">เปิดแดชบอร์ด</h2>
+            <p className="mt-2 text-[13px] leading-5 text-slate-600">{lastPeakMeta ? 'เลือกไฟล์เดิมหรือไฟล์ที่ใหม่กว่า' : 'เลือกไฟล์ข้อมูลจาก PEAK'}</p>
+            <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-6 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
+              <UploadIcon className="h-4 w-4" />เลือกไฟล์ PEAK
             </button>
-            <p className="mt-2 text-[12px] text-slate-500">JSON v3 · สูงสุด 1 MB</p>
-            <div className="mt-5 border-t border-slate-200 pt-4">
-              <p className="text-[12px] leading-5 text-slate-600">ไม่มีไฟล์? <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK</a> แล้วพิมพ์ “logged in” ใน Codex</p>
+            <div className="mt-4 flex items-center gap-2 text-[12px] text-slate-500">
+              <ShieldCheckIcon className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>ตัวเลขอยู่เฉพาะในแท็บนี้</span>
+            </div>
+            <div className="mt-6 border-t border-slate-200 pt-3">
+              <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK</a>
             </div>
           </div>
         </section>
