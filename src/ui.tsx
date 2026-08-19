@@ -1,9 +1,10 @@
 /* Workbench UI primitives: badges, cards, KPI strip, config-driven table and panels */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { AlertTriangleIcon, ArrowUpDownIcon, ChevronLeftIcon, ChevronRightIcon, LoaderCircleIcon, SearchIcon, UploadIcon, XIcon } from 'lucide-react';
+import { AlertTriangleIcon, ArrowUpDownIcon, CheckCircle2Icon, ChevronLeftIcon, ChevronRightIcon, LoaderCircleIcon, SearchIcon, UploadIcon, XIcon } from 'lucide-react';
 import { STATUS, dateTH, dateTimeTH, num, sanitizePeakSnapshot, thb } from './data';
 import type { Tone } from './data';
+import { peakSnapshotAssurance } from './peak-view';
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const cx = (...c: Array<string | false | undefined | null>) => c.filter(Boolean).join(' ');
@@ -211,11 +212,22 @@ function peakImportError(value: unknown): string {
   if (snapshot.source !== 'PEAK') return 'ไม่พบแหล่งข้อมูล PEAK';
   if (snapshot.currency !== 'THB') return 'ไฟล์ต้องใช้สกุลเงินบาท (THB)';
   if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim()) return 'ไม่พบชื่อกิจการ';
-  if (typeof snapshot.asOf !== 'string' || typeof snapshot.capturedAt !== 'string') return 'ไม่พบวันที่ตรวจข้อมูล';
-  const required = ['ytd', 'income', 'expense', 'taxes', 'financialPosition', 'cashChannels', 'sources'];
+  if (typeof snapshot.asOf !== 'string' || !Number.isFinite(Date.parse(snapshot.asOf)) ||
+    typeof snapshot.capturedAt !== 'string' || !Number.isFinite(Date.parse(snapshot.capturedAt))) return 'วันที่ตรวจข้อมูลไม่ถูกต้อง';
+  const required = [
+    'ytd', 'income', 'expense', 'taxes', 'salesMix', 'topCustomers', 'monthlyPL', 'financialPosition',
+    'cashChannels', 'financeAccounts', 'recentIncomeRows', 'recentExpenseRows', 'sources', 'insights', 'qualityFindings'
+  ];
   const missing = required.filter((key) => !snapshot[key]);
   if (missing.length) return `ข้อมูลไม่ครบ ${missing.length} ส่วน`;
-  return 'ข้อมูลไม่ผ่านการตรวจสอบ';
+  if (!Array.isArray(snapshot.monthlyPL) || snapshot.monthlyPL.length < 2 || snapshot.monthlyPL.length > 60) return 'ประวัติกำไรต้องมี 2–60 เดือน';
+  if (!Array.isArray(snapshot.sources) || snapshot.sources.length < 3) return 'แหล่งข้อมูลต้องมีอย่างน้อย 3 หน้า';
+  if (Array.isArray(snapshot.financeAccounts) && snapshot.financeAccounts.some((account) => {
+    if (!account || typeof account !== 'object') return false;
+    const name = (account as {name?: unknown;}).name;
+    return typeof name === 'string' && /\d{6,}/.test(name);
+  })) return 'ปิดเลขบัญชีธนาคารก่อนเปิด';
+  return 'ตัวเลขหรือรายการไม่สอดคล้องกัน';
 }
 
 export function JsonImportDialog({ open, onImport, onClose }: {
@@ -236,29 +248,19 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   const [committing, setCommitting] = useState(false);
   onCloseRef.current = onClose;
   openRef.current = open;
-  const preview = useMemo(() => {
-    if (!draft.trim()) return undefined;
+  const validation = useMemo(() => {
+    if (!draft.trim()) return {};
+    if (draft.length > 1_000_000) return { error: 'ข้อมูลใหญ่เกิน 1 MB' };
     try {
       const value = JSON.parse(draft) as unknown;
-      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-      const snapshot = value as Record<string, unknown>;
-      const asOf = typeof snapshot.asOf === 'string' && Number.isFinite(Date.parse(snapshot.asOf)) ? dateTH(snapshot.asOf.slice(0, 10)) : 'ไม่พบ';
-      const capturedAt = typeof snapshot.capturedAt === 'string' ? dateTimeTH(snapshot.capturedAt) : 'ไม่พบ';
-      return {
-        company: typeof snapshot.companyName === 'string' && snapshot.companyName.trim() ? snapshot.companyName : 'ไม่พบ',
-        version: snapshot.schemaVersion === undefined ? 'ไม่พบ' : `v${String(snapshot.schemaVersion)}`,
-        asOf, capturedAt,
-        sources: Array.isArray(snapshot.sources) ? `${snapshot.sources.length} แหล่ง` : 'ไม่พบ',
-        bankItems: Array.isArray(snapshot.bankReconciliation) ? `${snapshot.bankReconciliation.reduce((sum, group) => {
-          if (!group || typeof group !== 'object') return sum;
-          const items = (group as {items?: unknown;}).items;
-          return sum + (Array.isArray(items) ? items.length : 0);
-        }, 0)} รายการ` : undefined
-      };
+      const snapshot = sanitizePeakSnapshot(value);
+      return snapshot ? { snapshot } : { error: peakImportError(value) };
     } catch {
-      return undefined;
+      return { error: 'JSON ไม่ถูกต้อง' };
     }
   }, [draft]);
+  const assurance = useMemo(() => validation.snapshot ? peakSnapshotAssurance(validation.snapshot) : undefined, [validation.snapshot]);
+  const shownError = error || validation.error;
 
   useEffect(() => {
     if (!open) {
@@ -329,12 +331,6 @@ export function JsonImportDialog({ open, onImport, onClose }: {
       const text = await file.text();
       if (request !== readRequestRef.current || !openRef.current) return;
       setDraft(text);
-      try {
-        const parsed = JSON.parse(text) as unknown;
-        if (!sanitizePeakSnapshot(parsed)) setError(peakImportError(parsed));
-      } catch {
-        setError('JSON ไม่ถูกต้อง');
-      }
     } catch {
       if (request !== readRequestRef.current || !openRef.current) return;
       setError('อ่านไฟล์ไม่ได้');
@@ -345,26 +341,19 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   };
   const commit = () => {
     if (reading || committingRef.current) return;
-    if (draft.length > 1_000_000) {
-      setError('ข้อมูลใหญ่เกิน 1 MB');
+    if (!validation.snapshot) {
+      setError(validation.error ?? 'เลือกไฟล์ PEAK');
       return;
     }
     committingRef.current = true;
     setCommitting(true);
-    try {
-      const parsed = JSON.parse(draft) as unknown;
-      if (!onImport(parsed)) {
-        setError(peakImportError(parsed));
-        committingRef.current = false;
-        setCommitting(false);
-        return;
-      }
-      onClose();
-    } catch {
-      setError('JSON ไม่ถูกต้อง');
+    if (!onImport(validation.snapshot)) {
+      setError('เปิดข้อมูลไม่ได้ · เลือกไฟล์อีกครั้ง');
       committingRef.current = false;
       setCommitting(false);
+      return;
     }
+    onClose();
   };
   return createPortal(
     <div className="erp-fade-in fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -385,25 +374,36 @@ export function JsonImportDialog({ open, onImport, onClose }: {
             aria-hidden="true" tabIndex={-1}
             onChange={(event) => { void readFile(event.target.files?.[0]); event.currentTarget.value = ''; }} />
         </div>
-        {preview ? <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-xl bg-slate-50 px-4 py-3 text-[12px] sm:grid-cols-4" aria-label="ข้อมูลก่อนเปิด">
-          <div className="col-span-2"><dt className="text-slate-500">กิจการ</dt><dd className="mt-0.5 truncate font-medium text-slate-900" title={preview.company}>{preview.company}</dd></div>
-          <div><dt className="text-slate-500">ข้อมูลถึง</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.asOf}</dd></div>
-          <div><dt className="text-slate-500">แหล่งข้อมูล</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.sources}</dd></div>
-          {preview.bankItems ? <div><dt className="text-slate-500">รอกระทบยอด</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.bankItems}</dd></div> : null}
-          <div className="col-span-2"><dt className="text-slate-500">ตรวจเมื่อ</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.capturedAt} · {preview.version}</dd></div>
-        </dl> : null}
+        {validation.snapshot && assurance ? <section className="mt-4 border-y border-slate-200" aria-label="ข้อมูลก่อนเปิด" aria-live="polite">
+          <div className="flex items-start gap-2.5 py-3">
+            {assurance.status === 'ok' ? <CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangleIcon className={cx('mt-0.5 h-4 w-4 shrink-0', assurance.status === 'bad' ? 'text-rose-600' : 'text-amber-600')} />}
+            <div className="min-w-0 flex-1">
+              <p className={cx('text-[13px] font-semibold', assurance.status === 'ok' ? 'text-emerald-700' : assurance.status === 'bad' ? 'text-rose-700' : 'text-amber-700')}>{assurance.label}</p>
+              <p className="mt-0.5 text-[12px] text-slate-600">{assurance.reason}</p>
+            </div>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-200 py-3 text-[12px] sm:grid-cols-4">
+            <div className="col-span-2"><dt className="text-slate-500">กิจการ</dt><dd className="mt-0.5 truncate font-medium text-slate-900" title={validation.snapshot.companyName}>{validation.snapshot.companyName}</dd></div>
+            <div><dt className="text-slate-500">ข้อมูลถึง</dt><dd className="mt-0.5 font-medium text-slate-900">{dateTH(validation.snapshot.asOf.slice(0, 10))}</dd><small className="text-[10.5px] text-slate-500">{assurance.freshness.label}</small></div>
+            <div><dt className="text-slate-500">ประวัติ</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.historyCount} เดือน{assurance.missingMonths ? ` · ขาด ${assurance.missingMonths} เดือน` : ''}</dd><small className="text-[10.5px] text-slate-500">{assurance.historyRange}</small></div>
+            <div><dt className="text-slate-500">แหล่งข้อมูล</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.sourceCount} หน้า{assurance.agingSources + assurance.staleSources ? ` · ช้า ${assurance.agingSources + assurance.staleSources}` : ''}</dd></div>
+            <div><dt className="text-slate-500">รายการ</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.recordCount} แถว</dd></div>
+            {assurance.fullBankAccounts + assurance.sampleBankAccounts ? <div><dt className="text-slate-500">หลักฐานธนาคาร</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.bankItemCount} รายการ</dd><small className="text-[10.5px] text-slate-500">{assurance.bankCoverageLabel}</small></div> : null}
+            <div className="col-span-2"><dt className="text-slate-500">ตรวจเมื่อ</dt><dd className="mt-0.5 font-medium text-slate-900">{dateTimeTH(validation.snapshot.capturedAt)} · v3</dd></div>
+          </dl>
+        </section> : null}
         <details className="group mt-4 border-t border-slate-200 pt-3">
           <summary className="flex min-h-11 cursor-pointer list-none items-center text-[12px] font-medium text-slate-600 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden">วาง JSON</summary>
           <label htmlFor="peak-json" className="block text-[12px] font-medium text-slate-700">JSON</label>
           <textarea
             ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setError(''); }}
-            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(error)} aria-describedby={error ? 'peak-json-error' : undefined} disabled={reading || committing}
+            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(shownError)} aria-describedby={shownError ? 'peak-json-error' : undefined} disabled={reading || committing}
             className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-base leading-6 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:cursor-wait disabled:opacity-60 sm:text-[12px] sm:leading-5" />
         </details>
-        {error ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{error}</p> : null}
+        {shownError ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{shownError}</p> : null}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button className="w-full sm:w-auto" onClick={onClose} disabled={committing}>ยกเลิก</Button>
-          <Button className={cx('w-full sm:w-auto', committing && '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none')} variant="primary" icon={committing ? LoaderCircleIcon : undefined} disabled={!draft.trim() || reading || committing || Boolean(error)} onClick={commit}>{committing ? 'กำลังเปิด…' : 'เปิดข้อมูล'}</Button>
+          <Button className={cx('w-full sm:w-auto', committing && '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none')} variant="primary" icon={committing ? LoaderCircleIcon : undefined} disabled={!validation.snapshot || reading || committing || Boolean(shownError)} onClick={commit}>{committing ? 'กำลังเปิด…' : 'เปิดข้อมูล'}</Button>
         </div>
       </div>
     </div>, document.body

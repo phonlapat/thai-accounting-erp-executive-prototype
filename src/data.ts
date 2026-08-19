@@ -259,12 +259,13 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
     typeof row.party === 'string' && row.party.trim() && row.party.length <= 200 && /^\d{4}-\d{2}-\d{2}$/.test(row.issueDate) &&
     nonNegative(row.amount) && ['paid', 'voided', 'outstanding', 'overdue', 'await_receipt'].includes(row.status) &&
     typeof row.activity === 'string' && row.activity.trim() && row.activity.length <= 120 &&
-    typeof row.activityAt === 'string' && Number.isFinite(Date.parse(row.activityAt))
+    typeof row.activityAt === 'string' && Number.isFinite(Date.parse(row.activityAt)) && Date.parse(row.activityAt) <= capturedTime + MAX_CLOCK_SKEW_MS
   )) && new Set(rows.map((row) => row.id)).size === rows.length;
   if (!validRecordRows(snapshot.recentIncomeRows) || !validRecordRows(snapshot.recentExpenseRows)) return false;
   if (!Array.isArray(snapshot.sources) || snapshot.sources.length < 3 || snapshot.sources.length > 12 || !snapshot.sources.every((source) => Boolean(
     source && typeof source.key === 'string' && source.key.length <= 60 && typeof source.label === 'string' && source.label.trim() && source.label.length <= 120 &&
-    typeof source.asOf === 'string' && Number.isFinite(Date.parse(source.asOf)) && typeof source.scope === 'string' && source.scope.trim() && source.scope.length <= 240
+    typeof source.asOf === 'string' && Number.isFinite(Date.parse(source.asOf)) && Date.parse(source.asOf) <= capturedTime + MAX_CLOCK_SKEW_MS &&
+    typeof source.scope === 'string' && source.scope.trim() && source.scope.length <= 240
   ))) return false;
   if (new Set(snapshot.sources.map((source) => source.key)).size !== snapshot.sources.length) return false;
   const insightMeasures = [snapshot.insights.quotationAwaitingAmount, snapshot.insights.invoiceAlertAmount];

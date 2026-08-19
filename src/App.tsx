@@ -16,7 +16,7 @@ import {
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
-import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakYearTH, selectPeakMonths } from './peak-view';
+import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakSnapshotAssurance, peakYearTH, selectPeakMonths } from './peak-view';
 import type { PeakPeriod } from './peak-view';
 import { buildTableHash, parseTableRoute } from './table-route';
 import type { TableFilters } from './table-route';
@@ -1299,24 +1299,38 @@ const PEAK_MODULES: Mod[] = [
     desc: 'แหล่งข้อมูล ความสด และตัวเลขที่ต้องกระทบยอดก่อนใช้ตัดสินใจ',
     kpis: (d) => {
       const s = peakOf(d);
+      const assurance = peakSnapshotAssurance(s);
       const high = s.qualityFindings.filter((finding) => finding.severity === 'bad').length;
       return [
         { label: 'ต้องตรวจสอบ', value: `${s.qualityFindings.length} จุด`, tone: s.qualityFindings.length ? 'bad' : 'ok' },
         { label: 'ความเสี่ยงสูง', value: `${high} จุด`, tone: high ? 'bad' : 'ok' },
-        { label: 'แหล่งข้อมูล', value: `${s.sources.length} หน้า` },
-        { label: 'รายการจริง', sub: 'รายได้ + ค่าใช้จ่าย', value: `${s.recentIncomeRows.length + s.recentExpenseRows.length} แถว` }
+        { label: 'แหล่งข้อมูล', sub: assurance.agingSources + assurance.staleSources ? `ช้า ${assurance.agingSources + assurance.staleSources} หน้า` : 'ใหม่ครบ', value: `${assurance.sourceCount} หน้า`, tone: assurance.staleSources ? 'bad' : assurance.agingSources ? 'warn' : 'ok' },
+        { label: 'ประวัติงบ', sub: assurance.missingMonths ? `ขาด ${assurance.missingMonths} เดือน` : assurance.historyRange, value: `${assurance.historyCount} เดือน`, tone: assurance.missingMonths ? 'warn' : 'ok' }
       ];
     },
     panels: (d) => {
       const s = peakOf(d);
+      const assurance = peakSnapshotAssurance(s);
+      const bankCoverage = assurance.fullBankAccounts + assurance.sampleBankAccounts;
       return [
         {
           title: 'จุดที่ต้องกระทบยอด', sub: 'ยังไม่สรุปค่าที่ขัดกันเป็นยอดเดียว', full: true,
           lines: s.qualityFindings.map((finding) => ({ left: finding.title, sub: finding.detail, right: finding.severity === 'bad' ? 'ความเสี่ยงสูง' : 'ควรตรวจ', tone: finding.severity }))
         },
         {
+          title: 'ความครอบคลุม', sub: assurance.reason, wide: true,
+          lines: [
+            { left: 'งบกำไรขาดทุน', sub: `${assurance.historyRange}${assurance.missingMonths ? ` · ขาด ${assurance.missingMonths} เดือน` : ''}`, right: `${assurance.historyCount} เดือน`, tone: assurance.missingMonths ? 'warn' : undefined },
+            { left: 'รายการรายได้และค่าใช้จ่าย', sub: `${s.recentIncomeRows.length} รายได้ · ${s.recentExpenseRows.length} ค่าใช้จ่าย`, right: `${assurance.recordCount} แถว` },
+            { left: 'หลักฐานธนาคาร', sub: bankCoverage ? assurance.bankCoverageLabel : 'ไม่ได้แนบใน snapshot', right: bankCoverage ? `${assurance.bankItemCount} รายการ` : '—', tone: assurance.sampleBankAccounts ? 'warn' : undefined }
+          ]
+        },
+        {
           title: 'แหล่งข้อมูล', sub: 'เวลาอัปเดตของแต่ละหน้า', wide: true,
-          lines: s.sources.map((source) => ({ left: source.label, sub: source.scope, right: peakStamp(source.asOf) }))
+          lines: s.sources.map((source) => {
+            const freshness = peakSnapshotFreshness(source.asOf);
+            return { left: source.label, sub: `${source.scope} · ${freshness.label}`, right: peakStamp(source.asOf), tone: freshness.status === 'stale' ? 'bad' as const : freshness.status === 'aging' ? 'warn' as const : undefined };
+          })
         },
         {
           title: 'ขอบเขต', sub: 'วิธีอ่านชุดข้อมูลนี้',

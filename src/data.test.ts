@@ -220,6 +220,17 @@ describe('PEAK snapshot boundary', () => {
     reversed.asOf = '2026-08-12T18:00:00+07:00';
     reversed.capturedAt = '2026-08-12T17:30:00+07:00';
     expect(isPeakSnapshot(reversed, Date.parse('2026-08-20T12:00:00+07:00'))).toBe(false);
+
+    const futureSource = validSnapshot();
+    futureSource.sources[0].asOf = '2026-08-12T18:00:00+07:00';
+    expect(isPeakSnapshot(futureSource)).toBe(false);
+
+    const futureActivity = validSnapshot();
+    futureActivity.recentIncomeRows = [{
+      id: 'income-future', documentNo: 'IV-TEST', party: 'ลูกค้า ก', issueDate: '2026-08-12',
+      amount: 100, status: 'paid', activity: 'รับชำระแล้ว', activityAt: '2026-08-12T18:00:00+07:00'
+    }];
+    expect(isPeakSnapshot(futureActivity)).toBe(false);
   });
 });
 

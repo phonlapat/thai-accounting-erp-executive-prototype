@@ -2,6 +2,14 @@
 
 Siam ERP opens an allowlisted, read-only PEAK snapshot in the current browser tab. The file is never uploaded by the application and must never be committed to this repository.
 
+## Import assurance
+
+The pre-open review is built only from the sanitized snapshot. Invalid JSON never produces an actionable preview, and the open action remains disabled until schema, chronology, arithmetic, identifiers, and allowlisted fields pass validation.
+
+The review reports freshness, monthly-history gaps, source-page lag, captured income and expense rows, quality findings, and the declared bank-evidence coverage. These are separate evidence signals, not a combined quality score. A warning does not disappear when the snapshot opens.
+
+Source-page and activity timestamps later than the snapshot capture time are rejected. Missing months remain missing and sample bank evidence remains labelled as a sample.
+
 ## Reporting history
 
 `monthlyPL` accepts 2–60 unique monthly rows. This supports the five-year reporting range available in PEAK while keeping the imported snapshot bounded.
