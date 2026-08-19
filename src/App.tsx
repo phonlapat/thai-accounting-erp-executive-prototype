@@ -16,8 +16,10 @@ import {
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
-import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
+import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakCashReconciliation, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
 import type { PeakPeriod } from './peak-view';
+import { buildTableHash, parseTableRoute } from './table-route';
+import type { TableFilters } from './table-route';
 
 declare const __BUILD_AT__: string;
 
@@ -27,11 +29,12 @@ interface Mod {
   id: string;th: string;en: string;group: string;desc: string;
   icon: React.ComponentType<{className?: string;}>;
   kpis: (d: AppData) => Kpi[];
-  panels?: (d: AppData, a: Actions, navigate: (id: string, query?: string) => void, view: ViewContext) => PanelSpec[];
+  panels?: (d: AppData, a: Actions, navigate: (id: string, query?: string, filters?: TableFilters) => void, view: ViewContext) => PanelSpec[];
   title?: string;sub?: string;
   cols?: Col[];
   rows?: (d: AppData) => RowData[];
   filters?: (d: AppData) => FilterSpec[];
+  empty?: string;
   actions?: (r: RowData, a: Actions) => RowAction[];
 }
 
@@ -43,7 +46,7 @@ const daysBetween = (from: string, to: string) => Math.floor((Date.parse(to) - D
 
 interface PeakAttentionItem {
   left: string;sub: string;right: string;tone: 'warn' | 'bad';priority: number;
-  destination: 'peak-income' | 'peak-expenses' | 'peak-quality';actionLabel: string;
+  destination: 'peak-income' | 'peak-expenses' | 'peak-quality';actionLabel: string;filters?: TableFilters;
 }
 
 function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
@@ -60,12 +63,12 @@ function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
   {
     left: 'ลูกหนี้เกินกำหนด', sub: `${snapshot.income.overdueCount} รายการ`, right: thb(snapshot.income.overdue),
     tone: 'bad', priority: 350, destination: 'peak-income', actionLabel: 'เปิด',
-    count: snapshot.income.overdueCount, amount: snapshot.income.overdue
+    filters: { status: 'overdue' }, count: snapshot.income.overdueCount, amount: snapshot.income.overdue
   },
   {
     left: 'ค่าใช้จ่ายและซื้อเกินกำหนด', sub: `${snapshot.expense.overdueActionCount} งาน`, right: thb(snapshot.expense.overdueActionAmount),
     tone: 'warn', priority: 300, destination: 'peak-expenses', actionLabel: 'เปิด',
-    count: snapshot.expense.overdueActionCount, amount: snapshot.expense.overdueActionAmount
+    filters: { status: 'overdue' }, count: snapshot.expense.overdueActionCount, amount: snapshot.expense.overdueActionAmount
   },
   {
     left: 'ใบเสนอราคาหมดอายุ', sub: `${snapshot.income.expiredQuotationCount} ฉบับ`, right: thb(snapshot.income.expiredQuotation),
@@ -83,7 +86,7 @@ function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
 
 function peakDashboardPanels(
   snapshot: PeakSnapshot,
-  navigate: (id: string, query?: string) => void,
+  navigate: (id: string, query?: string, filters?: TableFilters) => void,
   period: PeakPeriod = 'all',
   onPeriodChange?: (period: PeakPeriod) => void
 ): PanelSpec[] {
@@ -131,7 +134,7 @@ function peakDashboardPanels(
     title: 'ต้องทำตอนนี้', sub: attention.length ? `${attention.length} เรื่อง · เรียงตามความสำคัญ` : 'ไม่มีเรื่องเร่งด่วน', dashboardArea: 'urgent', collapseAfter: 4,
     lines: attention.map((item) => ({
       left: item.left, sub: item.sub, right: item.right, tone: item.tone,
-      actions: [{ label: item.actionLabel, ariaLabel: `${item.actionLabel} ${item.left}`, run: () => navigate(item.destination), variant: 'ghost' }]
+      actions: [{ label: item.actionLabel, ariaLabel: `${item.actionLabel} ${item.left}`, run: () => navigate(item.destination, '', item.filters), variant: 'ghost' }]
     })),
     empty: 'ทุกเรื่องสำคัญเรียบร้อย'
   },
@@ -942,6 +945,14 @@ const PEAK_MODULES: Mod[] = [
     },
     panels: (d) => {
       const s = peakOf(d);
+      const followUps: PanelSpec['lines'] = [
+        s.insights.quotationAwaitingCount > 0 || s.insights.quotationAwaitingAmount > 0 ?
+          { left: 'ใบเสนอราคารอลูกค้าตอบ', sub: `${s.insights.quotationAwaitingCount} ฉบับ`, right: thb(s.insights.quotationAwaitingAmount), tone: 'warn' as const } : undefined,
+        s.income.overdueCount > 0 || s.income.overdue > 0 ?
+          { left: 'ลูกหนี้เกินกำหนด', sub: `${s.income.overdueCount} รายการ`, right: thb(s.income.overdue), tone: 'bad' as const } : undefined,
+        s.income.expiredQuotationCount > 0 || s.income.expiredQuotation > 0 ?
+          { left: 'ใบเสนอราคาหมดอายุ', sub: `${s.income.expiredQuotationCount} ฉบับ`, right: thb(s.income.expiredQuotation), tone: 'warn' as const } : undefined
+      ].filter((item): item is NonNullable<typeof item> => Boolean(item));
       return [
         {
           title: 'ยอดขายเดือนนี้', sub: 'แยกสินค้าและบริการ', wide: true,
@@ -953,11 +964,8 @@ const PEAK_MODULES: Mod[] = [
         },
         {
           title: 'ต้องติดตาม', sub: 'ตัวเลขจาก PEAK Smart Insight',
-          lines: [
-            { left: 'ใบเสนอราคารอลูกค้าตอบ', sub: `${s.insights.quotationAwaitingCount} ฉบับ`, right: thb(s.insights.quotationAwaitingAmount), tone: 'warn' },
-            { left: 'ลูกหนี้เกินกำหนด', sub: `${s.income.overdueCount} รายการ`, right: thb(s.income.overdue), tone: 'bad' },
-            { left: 'ใบเสนอราคาหมดอายุ', sub: `${s.income.expiredQuotationCount} ฉบับ`, right: thb(s.income.expiredQuotation), tone: 'warn' }
-          ],
+          lines: followUps,
+          empty: 'ไม่มีงานติดตามจากข้อมูลชุดนี้',
           note: 'ยอดตามเอกสารขายต่างจากรายได้ทางบัญชีในงบกำไรขาดทุน'
         }
       ];
@@ -965,7 +973,14 @@ const PEAK_MODULES: Mod[] = [
     title: 'ประวัติรายการรายได้ล่าสุดจาก PEAK',
     cols: PEAK_RECORD_COLS,
     rows: (d) => peakOf(d).recentIncomeRows.map((row) => ({ ...row, updated: peakStamp(row.activityAt) })),
-    filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(peakOf(d).recentIncomeRows.map((row) => row.status)) }]
+    filters: (d) => {
+      const s = peakOf(d);
+      return [{ key: 'status', label: 'สถานะ', options: opts([
+        ...s.recentIncomeRows.map((row) => row.status),
+        ...(s.income.overdueCount > 0 || s.income.overdue > 0 ? ['overdue'] : [])
+      ]) }];
+    },
+    empty: 'ไม่พบในรายการล่าสุด · ยอดสรุปอาจครอบคลุมช่วงที่กว้างกว่า'
   },
   {
     id: 'peak-expenses', th: 'ค่าใช้จ่าย', en: 'Expenses', group: 'ข้อมูล PEAK', icon: ReceiptIcon,
@@ -1005,15 +1020,23 @@ const PEAK_MODULES: Mod[] = [
     title: 'ประวัติรายการค่าใช้จ่ายล่าสุดจาก PEAK',
     cols: PEAK_RECORD_COLS,
     rows: (d) => peakOf(d).recentExpenseRows.map((row) => ({ ...row, updated: peakStamp(row.activityAt) })),
-    filters: (d) => [{ key: 'status', label: 'สถานะ', options: opts(peakOf(d).recentExpenseRows.map((row) => row.status)) }]
+    filters: (d) => {
+      const s = peakOf(d);
+      return [{ key: 'status', label: 'สถานะ', options: opts([
+        ...s.recentExpenseRows.map((row) => row.status),
+        ...(s.expense.overdueActionCount > 0 || s.expense.overdueActionAmount > 0 ? ['overdue'] : [])
+      ]) }];
+    },
+    empty: 'ไม่พบในรายการล่าสุด · ยอดสรุปอาจครอบคลุมช่วงที่กว้างกว่า'
   },
   {
     id: 'peak-finance', th: 'เงินสดและธนาคาร', en: 'Cash & bank', group: 'ข้อมูล PEAK', icon: WalletIcon,
     desc: 'ยอดตามบัญชี PEAK เพื่อกระทบยอด ไม่ใช่ยอดเงินพร้อมใช้',
     kpis: (d) => {
       const s = peakOf(d);
+      const reconciliation = peakCashReconciliation(s);
       return [
-        { label: 'รวมตามช่องทาง', sub: 'ต้องกระทบยอด', value: thb(s.cashChannels.total, true), tone: 'bad' },
+        { label: 'รวมตามช่องทาง', sub: reconciliation.required ? 'ต้องกระทบยอด' : 'ยอดสำคัญตรงกัน', value: thb(s.cashChannels.total, true), tone: reconciliation.required ? 'bad' : 'ok' },
         { label: 'เงินสด', value: thb(s.cashChannels.cash, true), tone: s.cashChannels.cash < 0 ? 'bad' : 'ok' },
         { label: 'ธนาคาร', value: thb(s.cashChannels.bank, true), tone: s.cashChannels.bank < 0 ? 'bad' : 'ok' },
         { label: 'e-Wallet', value: thb(s.cashChannels.eWallet, true), tone: s.cashChannels.eWallet < 0 ? 'warn' : 'ok' }
@@ -1021,16 +1044,27 @@ const PEAK_MODULES: Mod[] = [
     },
     panels: (d) => {
       const s = peakOf(d);
-      const cashFinding = s.qualityFindings.find((finding) => finding.key === 'cash-totals');
+      const reconciliation = peakCashReconciliation(s);
+      const hasCashDifference = Math.abs(reconciliation.difference) > 0.02;
       return [
-        {
-          title: 'ห้ามใช้เป็นเงินพร้อมจ่าย', sub: 'ยอด PEAK สามหน้าไม่ตรงกัน', full: true,
+        reconciliation.required ? {
+          title: 'ต้องกระทบยอด', sub: reconciliation.finding?.title ?? (hasCashDifference ? 'ยอดจาก PEAK ต่างกัน' : 'PEAK ระบุให้ตรวจสอบ'), full: true,
           lines: [
             { left: 'หน้าช่องทางการเงิน', right: thb(s.cashChannels.total), tone: 'bad' },
             { left: 'งบแสดงฐานะการเงิน', right: thb(s.financialPosition.cashAndEquivalents), tone: 'bad' },
-            { left: 'รายละเอียดความต่าง', sub: cashFinding?.detail ?? 'ไม่พบรายละเอียดการกระทบยอด', right: 'ต้องตรวจสอบ', tone: 'bad' }
+            hasCashDifference || reconciliation.finding ?
+              { left: 'ส่วนต่าง', sub: reconciliation.finding?.detail, right: thb(reconciliation.difference), tone: 'bad' } :
+              { left: 'สถานะ', right: 'ต้องตรวจสอบ', tone: 'bad' }
           ],
-          note: 'ต้องกระทบยอดบัญชีธนาคารและตรวจช่วงวันที่ใน PEAK ก่อนตัดสินใจจ่ายเงิน'
+          note: 'ตรวจช่วงวันที่และกระทบยอดบัญชีธนาคารก่อนตัดสินใจจ่ายเงิน'
+        } : {
+          title: 'ยอดสำคัญตรงกัน', sub: `ตรวจ ณ ${dateTH(s.asOf.slice(0, 10))}`, full: true,
+          lines: [
+            { left: 'หน้าช่องทางการเงิน', right: thb(s.cashChannels.total) },
+            { left: 'งบแสดงฐานะการเงิน', right: thb(s.financialPosition.cashAndEquivalents) },
+            { left: 'สถานะ', right: 'ตรงกัน', tone: 'ok' }
+          ],
+          note: 'ยอดตามบัญชี · ไม่ใช่ยอดเงินพร้อมจ่าย'
         }
       ];
     },
@@ -1042,9 +1076,16 @@ const PEAK_MODULES: Mod[] = [
     ],
     rows: (d) => peakOf(d).financeAccounts.map((account) => ({
       id: account.id, name: account.name,
+      type: account.type,
       typeLabel: account.type === 'cash' ? 'เงินสด' : account.type === 'bank' ? 'ธนาคาร' : 'e-Wallet',
       balance: account.balance
-    }))
+    })),
+    filters: () => [{ key: 'type', label: 'ประเภท', options: [
+      { value: 'cash', label: 'เงินสด' },
+      { value: 'bank', label: 'ธนาคาร' },
+      { value: 'ewallet', label: 'e-Wallet' }
+    ] }],
+    empty: 'ไม่พบบัญชีประเภทนี้'
   },
   {
     id: 'peak-statements', th: 'งบการเงิน', en: 'Financial statements', group: 'ข้อมูล PEAK', icon: BarChart3Icon,
@@ -1170,11 +1211,6 @@ function moduleFromLocation(modules: Mod[]) {
   return modules.some((item) => item.id === id) ? id : 'dashboard';
 }
 
-function queryFromLocation() {
-  const query = window.location.hash.split('?')[1];
-  return query ? new URLSearchParams(query).get('q') ?? '' : '';
-}
-
 function readCollapsed() {
   try {
     return localStorage.getItem(COLLAPSED_KEY) === 'true';
@@ -1205,7 +1241,8 @@ function Workbench() {
   const availableModules = PEAK_MODULES;
   const availableGroups = PEAK_GROUPS;
   const [active, setActive] = useState(() => moduleFromLocation(availableModules));
-  const [tableQuery, setTableQuery] = useState(queryFromLocation);
+  const [tableQuery, setTableQuery] = useState(() => parseTableRoute(window.location.hash).query);
+  const [tableFilters, setTableFilters] = useState<TableFilters>(() => parseTableRoute(window.location.hash).filters);
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const [peakPeriod, setPeakPeriod] = useState<PeakPeriod>(readPeakPeriod);
   const [open, setOpen] = useState(false);
@@ -1219,23 +1256,51 @@ function Workbench() {
   const contentRef = useRef<HTMLDivElement>(null);
   const pageTitleRef = useRef<HTMLHeadingElement>(null);
   const m = useMemo(() => availableModules.find((x) => x.id === active) ?? availableModules[0], [active, availableModules]);
+  const moduleFilters = useMemo(() => m.filters ? m.filters(data) : [], [m, data]);
+  const normalizedTableFilters = useMemo(() => {
+    const normalized: TableFilters = {};
+    moduleFilters.forEach((filter) => {
+      const selected = tableFilters[filter.key];
+      if (selected && filter.options.some((option) => option.value === selected)) normalized[filter.key] = selected;
+    });
+    return normalized;
+  }, [moduleFilters, tableFilters]);
 
-  const go = (id: string, query = '') => {
+  const go = (id: string, query = '', filters: TableFilters = {}) => {
     if (!availableModules.some((item) => item.id === id)) return;
-    const nextHash = `#${id}${query ? `?q=${encodeURIComponent(query)}` : ''}`;
+    const nextHash = buildTableHash(id, query, filters);
     if (window.location.hash !== nextHash) window.history.pushState(null, '', nextHash);
     setActive(id);
     setTableQuery(query);
+    setTableFilters(filters);
     restoreMenuFocusRef.current = false;
     setOpen(false);
     window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
     window.requestAnimationFrame(() => pageTitleRef.current?.focus());
   };
 
+  const updateTableView = (query: string, filters: TableFilters) => {
+    const nextHash = buildTableHash(active, query, filters);
+    if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash);
+    setTableQuery(query);
+    setTableFilters(filters);
+  };
+
+  useEffect(() => {
+    const current = Object.entries(tableFilters).filter(([, value]) => Boolean(value)).sort();
+    const normalized = Object.entries(normalizedTableFilters).sort();
+    if (JSON.stringify(current) === JSON.stringify(normalized)) return;
+    const nextHash = buildTableHash(active, tableQuery, normalizedTableFilters);
+    window.history.replaceState(null, '', nextHash);
+    setTableFilters(normalizedTableFilters);
+  }, [active, normalizedTableFilters, tableFilters, tableQuery]);
+
   useEffect(() => {
     const onHistory = () => {
       setActive(moduleFromLocation(PEAK_MODULES));
-      setTableQuery(queryFromLocation());
+      const route = parseTableRoute(window.location.hash);
+      setTableQuery(route.query);
+      setTableFilters(route.filters);
     };
     window.addEventListener('popstate', onHistory);
     window.addEventListener('hashchange', onHistory);
@@ -1250,6 +1315,7 @@ function Workbench() {
     window.history.replaceState(null, '', '#dashboard');
     setActive('dashboard');
     setTableQuery('');
+    setTableFilters({});
     setOpen(false);
   }, [active, availableModules]);
 
@@ -1468,11 +1534,14 @@ function Workbench() {
             <Card>
                 <CardHead title={m.title ?? m.th} />
                 <DataTable
-                key={`${m.id}:${tableQuery}`}
+                key={m.id}
                 cols={m.cols}
                 rows={m.rows(data)}
                 initialQuery={tableQuery}
-                filters={m.filters ? m.filters(data) : []}
+                initialFilters={normalizedTableFilters}
+                filters={moduleFilters}
+                empty={m.empty}
+                onViewChange={updateTableView}
                 actions={m.actions ? (r) => m.actions ? m.actions(r, actions) : [] : undefined} />
 
               </Card> :

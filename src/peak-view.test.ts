@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
+import type { PeakSnapshot } from './data';
+import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakCashReconciliation, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
 
 describe('PEAK executive period view', () => {
   const months = [
@@ -38,5 +39,21 @@ describe('PEAK executive period view', () => {
     expect(isPeakPeriod('3')).toBe(true);
     expect(isPeakPeriod('12')).toBe(false);
     expect(isPeakPeriod(null)).toBe(false);
+  });
+
+  it('only requires cash reconciliation when the source evidence does', () => {
+    const snapshot = {
+      cashChannels: { total: 100, reconciliationRequired: false },
+      financialPosition: { cashAndEquivalents: 100 },
+      qualityFindings: []
+    } as unknown as PeakSnapshot;
+    expect(peakCashReconciliation(snapshot)).toMatchObject({ required: false, difference: 0 });
+
+    snapshot.financialPosition.cashAndEquivalents = 90;
+    expect(peakCashReconciliation(snapshot)).toMatchObject({ required: true, difference: 10 });
+
+    snapshot.financialPosition.cashAndEquivalents = 100;
+    snapshot.qualityFindings = [{ key: 'cash-totals', severity: 'warn', title: 'ยอดต่าง', detail: 'ตรวจช่วงวันที่' }];
+    expect(peakCashReconciliation(snapshot)).toMatchObject({ required: true, difference: 0, finding: snapshot.qualityFindings[0] });
   });
 });
