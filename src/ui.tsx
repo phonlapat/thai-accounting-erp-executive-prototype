@@ -430,6 +430,11 @@ export interface PanelPerformance {
   total: string;totalPositive: boolean;profitableMonths: string;
   points: Array<{label: string;value: number;note: string;current?: boolean;open?: boolean;}>
 }
+export interface PanelChoice {
+  ariaLabel: string;value: string;
+  options: Array<{value: string;label: string;}>;
+  onChange: (value: string) => void;
+}
 export interface PanelSpec {
   title: string;sub?: string;wide?: boolean;full?: boolean;dashboardArea?: 'performance' | 'urgent' | 'approvals';note?: string;
   rows?: Array<[string, string, boolean?]>;
@@ -437,8 +442,32 @@ export interface PanelSpec {
   lines?: PanelLine[];
   performance?: PanelPerformance;
   action?: ActionSpec;
+  choice?: PanelChoice;
   collapseAfter?: number;
   empty?: string;
+}
+
+function PanelChoiceControl({ choice }: {choice: PanelChoice;}) {
+  return (
+    <div role="group" aria-label={choice.ariaLabel} className="flex rounded-lg bg-slate-100 p-0.5">
+      {choice.options.map((option) => {
+        const selected = option.value === choice.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => choice.onChange(option.value)}
+            className={cx(
+              'min-h-11 rounded-md px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 sm:min-h-8',
+              selected ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-600 hover:bg-white/70 hover:text-slate-950'
+            )}>
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function PerformanceOverview({ data, title }: {data: PanelPerformance;title: string;}) {
@@ -566,7 +595,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
           <CardHead
           title={p.title}
           sub={p.sub}
-          action={p.action ? <GuardedAction action={p.action} /> : undefined} />
+          action={p.choice ? <PanelChoiceControl choice={p.choice} /> : p.action ? <GuardedAction action={p.action} /> : undefined} />
 
           {p.bars?.length ?
         <ul className="space-y-2.5 px-4 py-3">

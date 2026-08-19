@@ -16,15 +16,18 @@ import {
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
+import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
+import type { PeakPeriod } from './peak-view';
 
 declare const __BUILD_AT__: string;
 
 interface Kpi {label: string;sub?: string;value: string;tone?: Tone;hint?: string;}
+interface ViewContext {peakPeriod: PeakPeriod;onPeakPeriodChange: (period: PeakPeriod) => void;}
 interface Mod {
   id: string;th: string;en: string;group: string;desc: string;
   icon: React.ComponentType<{className?: string;}>;
   kpis: (d: AppData) => Kpi[];
-  panels?: (d: AppData, a: Actions, navigate: (id: string, query?: string) => void) => PanelSpec[];
+  panels?: (d: AppData, a: Actions, navigate: (id: string, query?: string) => void, view: ViewContext) => PanelSpec[];
   title?: string;sub?: string;
   cols?: Col[];
   rows?: (d: AppData) => RowData[];
@@ -78,9 +81,17 @@ function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
     .sort((left, right) => right.priority - left.priority);
 }
 
-function peakDashboardPanels(snapshot: PeakSnapshot, navigate: (id: string, query?: string) => void): PanelSpec[] {
+function peakDashboardPanels(
+  snapshot: PeakSnapshot,
+  navigate: (id: string, query?: string) => void,
+  period: PeakPeriod = 'all',
+  onPeriodChange?: (period: PeakPeriod) => void
+): PanelSpec[] {
   const asOf = dateTH(snapshot.asOf.slice(0, 10));
-  const monthly = [...snapshot.monthlyPL].sort((left, right) => left.month.localeCompare(right.month));
+  const allMonthly = selectPeakMonths(snapshot.monthlyPL, 'all');
+  const activePeriod = effectivePeakPeriod(period, allMonthly.length);
+  const monthly = selectPeakMonths(allMonthly, activePeriod);
+  const periodOptions = availablePeakPeriods(allMonthly.length);
   const latest = monthly[monthly.length - 1];
   const previous = monthly[monthly.length - 2];
   const monthlyTotal = monthly.reduce((sum, item) => sum + item.profit, 0);
@@ -88,11 +99,17 @@ function peakDashboardPanels(snapshot: PeakSnapshot, navigate: (id: string, quer
   const worst = monthly.reduce((result, item) => item.profit < result.profit ? item : result, monthly[0]);
   const latestLabel = dateTH(`${latest.month}-01`).split(' ').slice(1).join(' ');
   const worstLabel = dateTH(`${worst.month}-01`).split(' ')[1];
-  const change = latest.partial ? undefined : latest.profit - previous.profit;
+  const change = latest.partial || !previous ? undefined : latest.profit - previous.profit;
   const attention = peakAttentionItems(snapshot);
   return [
   {
-    title: 'กำไรรายเดือน', sub: `${monthly.length} เดือนล่าสุด · งบกำไรขาดทุน PEAK`, dashboardArea: 'performance',
+    title: 'กำไรรายเดือน', sub: `${peakMonthRange(monthly)} · งบกำไรขาดทุน PEAK`, dashboardArea: 'performance',
+    choice: onPeriodChange && periodOptions.length > 1 ? {
+      ariaLabel: 'ช่วงเวลากำไรรายเดือน',
+      value: activePeriod,
+      options: periodOptions.map((value) => ({ value, label: value === 'all' ? 'ทั้งหมด' : `${value} เดือน` })),
+      onChange: (value) => { if (isPeakPeriod(value)) onPeriodChange(value); }
+    } : undefined,
     performance: {
       period: latestLabel,
       periodState: latest.partial ? `ถึง ${asOf}` : 'ปิดเดือนแล้ว',
@@ -214,9 +231,10 @@ const CORE: Mod[] = [
       const snapshot = d.peakSnapshot;
       const attention = peakAttentionItems(snapshot);
       const attentionTone: Tone = attention.some((item) => item.tone === 'bad') ? 'bad' : attention.length ? 'warn' : 'ok';
+      const year = peakYearTH(snapshot.asOf);
       return [
-      { label: 'กำไรปี 2569', sub: snapshot.ytd.profit >= 0 ? 'สถานะ: กำไร' : 'สถานะ: ขาดทุน', value: `${snapshot.ytd.profit >= 0 ? '+' : ''}${thb(snapshot.ytd.profit, true)}`, tone: snapshot.ytd.profit >= 0 ? 'ok' : 'bad' },
-      { label: 'รายได้ปี 2569', sub: 'ตามงบกำไรขาดทุน', value: thb(snapshot.ytd.revenue, true) },
+      { label: `กำไรปี ${year}`, sub: snapshot.ytd.profit >= 0 ? 'สถานะ: กำไร' : 'สถานะ: ขาดทุน', value: `${snapshot.ytd.profit >= 0 ? '+' : ''}${thb(snapshot.ytd.profit, true)}`, tone: snapshot.ytd.profit >= 0 ? 'ok' : 'bad' },
+      { label: `รายได้ปี ${year}`, sub: 'ตามงบกำไรขาดทุน', value: thb(snapshot.ytd.revenue, true) },
       { label: 'ลูกหนี้เกินกำหนด', sub: snapshot.income.overdue ? `ต้องตาม ${snapshot.income.overdueCount} รายการ` : 'ไม่มีรายการเกินกำหนด', value: thb(snapshot.income.overdue, true), tone: snapshot.income.overdue ? 'bad' : 'ok' },
       { label: 'สภาพคล่อง', sub: snapshot.financialPosition.currentRatio < 1.2 ? 'ต่ำกว่าเกณฑ์' : 'อยู่ในเกณฑ์', value: `${snapshot.financialPosition.currentRatio.toFixed(1)} เท่า`, tone: snapshot.financialPosition.currentRatio < 1.2 ? 'warn' : 'ok' },
       { label: 'ต้องทำตอนนี้', sub: attention[0]?.left ?? 'ไม่มีเรื่องเร่งด่วน', value: `${attention.length} เรื่อง`, tone: attentionTone }];
@@ -232,8 +250,8 @@ const CORE: Mod[] = [
     { label: 'รออนุมัติ', value: String(pendingList(d).length), tone: pendingList(d).length ? 'warn' : 'ok' as Tone }];
   },
 
-  panels: (d, a, navigate) => {
-    if (d.peakSnapshot) return peakDashboardPanels(d.peakSnapshot, navigate);
+  panels: (d, a, navigate, view) => {
+    if (d.peakSnapshot) return peakDashboardPanels(d.peakSnapshot, navigate, view.peakPeriod, view.onPeakPeriodChange);
     const history = series(d);
     const profit = history.slice(-5);
     const latestProfit = profit[profit.length - 1];
@@ -1040,9 +1058,9 @@ const PEAK_MODULES: Mod[] = [
         { label: 'สภาพคล่อง', sub: s.financialPosition.currentRatio < 1.2 ? 'ต่ำกว่าเกณฑ์' : 'อยู่ในเกณฑ์', value: `${s.financialPosition.currentRatio.toFixed(1)} เท่า`, tone: s.financialPosition.currentRatio < 1.2 ? 'warn' : 'ok' }
       ];
     },
-    panels: (d, _a, navigate) => {
+    panels: (d, _a, navigate, view) => {
       const s = peakOf(d);
-      const performance = peakDashboardPanels(s, navigate)[0];
+      const performance = peakDashboardPanels(s, navigate, view.peakPeriod, view.onPeakPeriodChange)[0];
       return [
         { ...performance, dashboardArea: undefined, wide: true },
         {
@@ -1165,6 +1183,15 @@ function readCollapsed() {
   }
 }
 
+function readPeakPeriod(): PeakPeriod {
+  try {
+    const value = localStorage.getItem(PEAK_PERIOD_KEY);
+    return isPeakPeriod(value) ? value : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
 function Workbench() {
   const actor = 'ผู้ตรวจสอบ PEAK';
   const { data, actions, toasts, storageIssue, lastPeakMeta } = useStore(actor);
@@ -1180,6 +1207,7 @@ function Workbench() {
   const [active, setActive] = useState(() => moduleFromLocation(availableModules));
   const [tableQuery, setTableQuery] = useState(queryFromLocation);
   const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [peakPeriod, setPeakPeriod] = useState<PeakPeriod>(readPeakPeriod);
   const [open, setOpen] = useState(false);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
@@ -1232,6 +1260,10 @@ function Workbench() {
   useEffect(() => {
     try { localStorage.setItem(COLLAPSED_KEY, String(collapsed)); } catch { /* preference storage is optional */ }
   }, [collapsed]);
+
+  useEffect(() => {
+    try { localStorage.setItem(PEAK_PERIOD_KEY, peakPeriod); } catch { /* preference storage is optional */ }
+  }, [peakPeriod]);
 
   useEffect(() => {
     if (!open) return;
@@ -1430,7 +1462,7 @@ function Workbench() {
         <main id="main-content" tabIndex={-1} className="min-w-0 flex-1 px-4 py-4 outline-none lg:px-6 lg:py-5">
           <div key={m.id} className="erp-view-in mx-auto max-w-[1600px] space-y-4">
             <KpiStrip items={m.kpis(data)} />
-            {m.panels ? <Panels items={m.panels(data, actions, go)} /> : null}
+            {m.panels ? <Panels items={m.panels(data, actions, go, { peakPeriod, onPeakPeriodChange: setPeakPeriod })} /> : null}
 
             {m.cols && m.rows ?
             <Card>
