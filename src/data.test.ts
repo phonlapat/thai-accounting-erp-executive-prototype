@@ -80,6 +80,36 @@ describe('PEAK snapshot boundary', () => {
     expect(sanitizePeakSnapshot(input)).toBeUndefined();
   });
 
+  it('preserves audited per-bank reconciliation evidence', () => {
+    const input = validSnapshot();
+    input.financeAccounts[1] = {
+      ...input.financeAccounts[1],
+      reconciliationStatus: 'partial',
+      unmatchedCount: 3,
+      lastReconciledAt: '2026-08-12T17:20:00+07:00'
+    };
+
+    expect(sanitizePeakSnapshot(input)?.financeAccounts[1]).toMatchObject({
+      reconciliationStatus: 'partial', unmatchedCount: 3, lastReconciledAt: '2026-08-12T17:20:00+07:00'
+    });
+  });
+
+  it('rejects contradictory or misplaced bank reconciliation evidence', () => {
+    const onCash = validSnapshot();
+    onCash.financeAccounts[0].reconciliationStatus = 'complete';
+    expect(isPeakSnapshot(onCash)).toBe(false);
+
+    const completeWithWork = validSnapshot();
+    completeWithWork.financeAccounts[1].reconciliationStatus = 'complete';
+    completeWithWork.financeAccounts[1].unmatchedCount = 2;
+    expect(isPeakSnapshot(completeWithWork)).toBe(false);
+
+    const impossibleTime = validSnapshot();
+    impossibleTime.financeAccounts[1].reconciliationStatus = 'partial';
+    impossibleTime.financeAccounts[1].lastReconciledAt = '2026-08-13T17:20:00+07:00';
+    expect(isPeakSnapshot(impossibleTime)).toBe(false);
+  });
+
   it('rejects inconsistent financial arithmetic', () => {
     const input = validSnapshot();
     input.ytd.profit = 999;
