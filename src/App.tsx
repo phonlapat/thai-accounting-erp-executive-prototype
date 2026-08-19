@@ -1650,39 +1650,43 @@ function Workbench() {
             </div>
           </div>
           <div className="mt-10 max-w-2xl pb-8 sm:mt-16 lg:my-auto lg:py-12">
-            <h1 className="text-balance text-[clamp(2.35rem,5vw,4.8rem)] font-semibold leading-[1.04] tracking-[-0.04em]">ภาพรวมธุรกิจ</h1>
-            <p className="mt-4 max-w-[45ch] text-[15px] leading-6 text-slate-300">PEAK · เปิดจากไฟล์ · อ่านอย่างเดียว</p>
+            <h1 className="text-balance text-[clamp(2.35rem,5vw,4.8rem)] font-semibold leading-[1.04] tracking-[-0.04em]">ข้อมูลล่าสุด</h1>
+            <p className="mt-4 max-w-[45ch] text-[15px] leading-6 text-slate-300">ดูสถานะได้ก่อนเปิดไฟล์</p>
 
-            <dl className="mt-10 grid max-w-2xl border-y border-slate-800 sm:mt-12 sm:grid-cols-2 sm:divide-x sm:divide-slate-800">
-              <div className="py-4 sm:pr-6">
-                <dt className="text-[12px] font-medium text-slate-400">อัปเดตระบบ</dt>
-                <dd className="mt-1 text-[14px] font-semibold tabular-nums text-white">{peakStamp(__BUILD_AT__)}</dd>
+            <section className="mt-10 max-w-2xl border-y border-slate-800 sm:mt-12" aria-labelledby="peak-last-update-title">
+              <div className="py-6 sm:py-7">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <HistoryIcon className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                  <h2 id="peak-last-update-title" className="text-[12px] font-medium text-slate-400">ข้อมูล PEAK บนเครื่องนี้</h2>
+                  {lastPeakFreshness ? <span className={cx('rounded-md px-2 py-1 text-[11px] font-semibold', lastPeakFreshness.status === 'fresh' ? 'bg-emerald-400/10 text-emerald-300' : lastPeakFreshness.status === 'aging' ? 'bg-amber-400/10 text-amber-300' : 'bg-rose-400/10 text-rose-300')}>{lastPeakFreshness.label}</span> : null}
+                </div>
+                {lastPeakMeta ? <>
+                  <p className="mt-3 text-[clamp(1.8rem,4vw,3.25rem)] font-semibold leading-none tracking-[-0.03em] text-white">ถึง {dateTH(lastPeakMeta.asOf.slice(0, 10))}</p>
+                  <p className="mt-3 text-[13px] tabular-nums text-slate-400">ตรวจล่าสุด <time dateTime={lastPeakMeta.capturedAt}>{peakStamp(lastPeakMeta.capturedAt)}</time></p>
+                </> : <>
+                  <p className="mt-3 text-[clamp(1.8rem,4vw,3.25rem)] font-semibold leading-none tracking-[-0.03em] text-white">ยังไม่เคยเปิด</p>
+                  <p className="mt-3 text-[13px] text-slate-400">เวลาล่าสุดจะแสดงหลังเปิดไฟล์ครั้งแรก</p>
+                </>}
               </div>
-              <div className="border-t border-slate-800 py-4 sm:border-t-0 sm:pl-6">
-                <dt className="flex items-center gap-2 text-[12px] font-medium text-slate-400"><HistoryIcon className="h-4 w-4" />ข้อมูล PEAK ล่าสุด</dt>
-                <dd className="mt-1 text-[14px] font-semibold text-white">
-                  {lastPeakMeta ? <>
-                    <span>ถึง {dateTH(lastPeakMeta.asOf.slice(0, 10))}</span>
-                    {lastPeakFreshness ? <span className={cx('ml-2 text-[12px] font-medium', lastPeakFreshness.status === 'fresh' ? 'text-emerald-300' : lastPeakFreshness.status === 'aging' ? 'text-amber-300' : 'text-rose-300')}>· {lastPeakFreshness.label}</span> : null}
-                    <span className="mt-0.5 block text-[11.5px] font-normal tabular-nums text-slate-400">ตรวจ {peakStamp(lastPeakMeta.capturedAt)}</span>
-                  </> : <span className="text-slate-300">ยังไม่มีประวัติบนเครื่องนี้</span>}
-                </dd>
+              <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-5 border-t border-slate-800 py-2 text-[12px] text-slate-400">
+                <span>เว็บล่าสุด <time className="ml-1 tabular-nums text-slate-200" dateTime={__BUILD_AT__}>{peakStamp(__BUILD_AT__)}</time></span>
+                {lastPeakMeta ? <button type="button" onClick={() => setConfirmClearHistory(true)} className="inline-flex min-h-10 items-center font-medium underline decoration-slate-700 underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">ล้างประวัติ</button> : null}
               </div>
-            </dl>
-            {lastPeakMeta ? <button type="button" onClick={() => setConfirmClearHistory(true)} className="mt-1 inline-flex min-h-11 items-center text-[12px] font-medium text-slate-400 underline decoration-slate-700 underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">ล้างเวลาที่จำไว้</button> : null}
+            </section>
           </div>
         </section>
 
         <section className="flex items-start justify-center bg-slate-50 px-5 py-8 text-slate-950 sm:px-8 sm:py-12 lg:items-center" aria-labelledby="peak-gate-title">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.42)] sm:p-8">
-            <h2 id="peak-gate-title" className="text-[26px] font-semibold tracking-[-0.025em]">เปิดข้อมูล</h2>
+            <h2 id="peak-gate-title" className="text-[26px] font-semibold tracking-[-0.025em]">เปิดภาพรวม</h2>
+            <p className="mt-2 text-[13px] text-slate-500">เงินสด · ลูกหนี้ · เจ้าหนี้ · กำไร</p>
             {peakSessionEnded === 'idle' ?
             <div className="mt-4 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-[13px] text-amber-900" role="status">
                 <LockKeyholeIcon className="h-4 w-4 shrink-0" />
                 <span><strong>ล็อกแล้ว</strong> · เปิดไฟล์อีกครั้ง</span>
               </div> : null}
             <button type="button" onClick={() => setPeakImportOpen(true)} className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">
-              <UploadIcon className="h-4 w-4" />เปิดไฟล์ PEAK
+              <UploadIcon className="h-4 w-4" />เลือกไฟล์ PEAK
             </button>
             {storageIssueText ? <div className="mt-4 flex items-start gap-2 text-[12px] leading-5 text-rose-700" role="alert">
               <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
@@ -1692,7 +1696,7 @@ function Workbench() {
               <span>ตัวเลขอยู่เฉพาะในแท็บนี้</span>
             </div>}
             <div className="mt-6 border-t border-slate-200 pt-3">
-              <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เข้าสู่ PEAK</a>
+              <a href="https://secure.peakaccount.com/home" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center font-semibold text-blue-700 underline decoration-blue-300 underline-offset-4 hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">เปิด PEAK</a>
             </div>
           </div>
         </section>
