@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PeakSnapshot } from './data';
-import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakSnapshotAssurance, peakYearTH, selectPeakMonths } from './peak-view';
+import { availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakSnapshotAssurance, peakStatementWorkspace, peakYearTH, selectPeakMonths } from './peak-view';
 
 describe('PEAK executive period view', () => {
   const months = [
@@ -99,13 +99,15 @@ describe('PEAK executive period view', () => {
         { key: 'finance', asOf: '2026-08-20T00:00:00+07:00' }
       ],
       qualityFindings: [],
-      bankReconciliation: [{ accountId: 'bank', coverage: 'full', items: [{ id: 'bank-item' }] }]
+      bankReconciliation: [{ accountId: 'bank', coverage: 'full', items: [{ id: 'bank-item' }] }],
+      statementEvidence: [{ id: 'revenue', coverage: 'full', entries: [{ id: 'ledger-item' }] }]
     } as unknown as PeakSnapshot;
 
     expect(peakSnapshotAssurance(snapshot, now)).toMatchObject({
       status: 'ok', label: 'พร้อมเปิด', historyCount: 3, historyRange: 'มิ.ย.–ส.ค. 69',
       missingMonths: 0, recordCount: 2, sourceCount: 3, agingSources: 0, staleSources: 0,
-      fullBankAccounts: 1, sampleBankAccounts: 0, bankCoverageLabel: '1 ครบ', bankItemCount: 1
+      fullBankAccounts: 1, sampleBankAccounts: 0, bankCoverageLabel: '1 ครบ', bankItemCount: 1,
+      fullStatementLines: 1, sampleStatementLines: 0, statementCoverageLabel: '1 ครบ', statementEntryCount: 1
     });
   });
 
@@ -121,11 +123,13 @@ describe('PEAK executive period view', () => {
         { key: 'finance', asOf: '2026-08-16T02:00:00+07:00' }
       ],
       qualityFindings: [],
-      bankReconciliation: [{ accountId: 'bank', coverage: 'sample', items: [] }]
+      bankReconciliation: [{ accountId: 'bank', coverage: 'sample', items: [] }],
+      statementEvidence: [{ id: 'expenses', coverage: 'sample', entries: [{ id: 'ledger-sample' }] }]
     } as unknown as PeakSnapshot;
     expect(peakSnapshotAssurance(snapshot, now)).toMatchObject({
       status: 'warn', label: 'เปิดได้ · ควรตรวจ', reason: 'ประวัติขาด 2 เดือน',
-      missingMonths: 2, agingSources: 1, staleSources: 1, sampleBankAccounts: 1, bankCoverageLabel: '1 ตัวอย่าง'
+      missingMonths: 2, agingSources: 1, staleSources: 1, sampleBankAccounts: 1, bankCoverageLabel: '1 ตัวอย่าง',
+      sampleStatementLines: 1, statementCoverageLabel: '1 ตัวอย่าง', statementEntryCount: 1
     });
 
     snapshot.qualityFindings = [{ key: 'cash', severity: 'bad', title: 'ยอดต่าง', detail: 'ตรวจสอบ' }];
@@ -220,5 +224,33 @@ describe('PEAK executive period view', () => {
     expect(review.fullCoverageAccounts).toHaveLength(1);
     expect(review.sampleCoverageAccounts).toHaveLength(1);
     expect(snapshot.bankReconciliation?.[0].items.map((item) => item.id)).toEqual(['none', 'high']);
+  });
+
+  it('keeps statement-line grain, sorts ledger entries, and preserves declared coverage without mutation', () => {
+    const snapshot = {
+      statementEvidence: [
+        {
+          id: 'assets', metric: 'total_assets', label: 'สินทรัพย์รวม', periodEnd: '2026-08-12', amount: 1000, coverage: 'sample',
+          entries: [{ id: 'asset-1', date: '2026-08-12', journalNo: 'JV-003', accountCode: '1000', accountName: 'สินทรัพย์', description: 'ยอดตัวอย่าง', amount: 200, source: 'opening' }]
+        },
+        {
+          id: 'revenue', metric: 'ytd_revenue', label: 'รายได้รวม', periodStart: '2026-01-01', periodEnd: '2026-08-12', amount: 1000, coverage: 'full',
+          entries: [
+            { id: 'revenue-older', date: '2026-08-10', journalNo: 'JV-001', accountCode: '4100', accountName: 'รายได้', description: 'รายการก่อน', amount: 400, source: 'income' },
+            { id: 'revenue-newer', date: '2026-08-12', journalNo: 'JV-002', accountCode: '4100', accountName: 'รายได้', description: 'รายการล่าสุด', amount: 600, source: 'journal' }
+          ]
+        }
+      ]
+    } as unknown as PeakSnapshot;
+    const original = structuredClone(snapshot.statementEvidence);
+
+    const review = peakStatementWorkspace(snapshot);
+
+    expect(review.evidence.map((group) => group.id)).toEqual(['revenue', 'assets']);
+    expect(review.items.map((item) => item.id)).toEqual(['revenue-newer', 'revenue-older', 'asset-1']);
+    expect(review.items[0]).toMatchObject({ lineId: 'revenue', lineLabel: 'รายได้รวม', lineAmount: 1000, coverage: 'full' });
+    expect(review.fullLines).toHaveLength(1);
+    expect(review.sampleLines).toHaveLength(1);
+    expect(snapshot.statementEvidence).toEqual(original);
   });
 });

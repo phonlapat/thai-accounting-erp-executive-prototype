@@ -1,5 +1,5 @@
 import { peakSnapshotFreshness } from './data';
-import type { PeakBankReconciliationItem, PeakSnapshot, Tone } from './data';
+import type { PeakBankReconciliationItem, PeakSnapshot, PeakStatementEntry, PeakStatementMetric, Tone } from './data';
 
 export type PeakPeriod = '3' | '6' | '12' | 'all';
 
@@ -152,6 +152,10 @@ export interface PeakSnapshotAssurance {
   sampleBankAccounts: number;
   bankCoverageLabel: string;
   bankItemCount: number;
+  fullStatementLines: number;
+  sampleStatementLines: number;
+  statementCoverageLabel: string;
+  statementEntryCount: number;
 }
 
 /** Summarize objective snapshot coverage without turning missing evidence into a score. */
@@ -172,12 +176,19 @@ export function peakSnapshotAssurance(snapshot: PeakSnapshot, now = Date.now()):
     sampleBankAccounts ? `${sampleBankAccounts} ตัวอย่าง` : ''
   ].filter(Boolean).join(' · ');
   const bankItemCount = (snapshot.bankReconciliation ?? []).reduce((sum, group) => sum + group.items.length, 0);
+  const fullStatementLines = (snapshot.statementEvidence ?? []).filter((group) => group.coverage === 'full').length;
+  const sampleStatementLines = (snapshot.statementEvidence ?? []).filter((group) => group.coverage === 'sample').length;
+  const statementCoverageLabel = [
+    fullStatementLines ? `${fullStatementLines} ครบ` : '',
+    sampleStatementLines ? `${sampleStatementLines} ตัวอย่าง` : ''
+  ].filter(Boolean).join(' · ');
+  const statementEntryCount = (snapshot.statementEvidence ?? []).reduce((sum, group) => sum + group.entries.length, 0);
   const freshness = peakSnapshotFreshness(snapshot.asOf, now);
   const highRiskFindings = snapshot.qualityFindings.filter((finding) => finding.severity === 'bad').length;
   const findingCount = snapshot.qualityFindings.length;
   const status: PeakSnapshotAssurance['status'] = highRiskFindings > 0 || freshness.status === 'stale'
     ? 'bad'
-    : findingCount > 0 || freshness.status === 'aging' || missingMonths > 0 || agingSources > 0 || staleSources > 0 || sampleBankAccounts > 0
+    : findingCount > 0 || freshness.status === 'aging' || missingMonths > 0 || agingSources > 0 || staleSources > 0 || sampleBankAccounts > 0 || sampleStatementLines > 0
       ? 'warn'
       : 'ok';
   const reason = highRiskFindings > 0 ? `ความเสี่ยงสูง ${highRiskFindings} จุด`
@@ -186,6 +197,7 @@ export function peakSnapshotAssurance(snapshot: PeakSnapshot, now = Date.now()):
         : missingMonths > 0 ? `ประวัติขาด ${missingMonths} เดือน`
           : staleSources > 0 || agingSources > 0 ? `แหล่งข้อมูลช้า ${staleSources + agingSources} หน้า`
             : sampleBankAccounts > 0 ? `หลักฐานธนาคารบางส่วน ${sampleBankAccounts} บัญชี`
+              : sampleStatementLines > 0 ? `ที่มางบบางส่วน ${sampleStatementLines} บรรทัด`
               : 'โครงสร้างและตัวเลขผ่านการตรวจ';
   return {
     status,
@@ -204,7 +216,11 @@ export function peakSnapshotAssurance(snapshot: PeakSnapshot, now = Date.now()):
     fullBankAccounts,
     sampleBankAccounts,
     bankCoverageLabel,
-    bankItemCount
+    bankItemCount,
+    fullStatementLines,
+    sampleStatementLines,
+    statementCoverageLabel,
+    statementEntryCount
   };
 }
 
@@ -268,5 +284,50 @@ export function peakBankReconciliationWorkspace(snapshot: PeakSnapshot) {
     sampleCoverageAccounts: evidence.filter((group) => group.coverage === 'sample'),
     suggestedItems: [...highConfidence, ...mediumConfidence],
     withoutCandidate
+  };
+}
+
+const STATEMENT_METRIC_ORDER: Record<PeakStatementMetric, number> = {
+  ytd_revenue: 0,
+  ytd_expenses: 1,
+  cash_and_equivalents: 2,
+  total_assets: 3,
+  total_liabilities: 4,
+  equity: 5
+};
+
+export interface PeakStatementReviewItem extends PeakStatementEntry {
+  lineId: string;
+  lineLabel: string;
+  metric: PeakStatementMetric;
+  periodStart?: string;
+  periodEnd: string;
+  lineAmount: number;
+  coverage: 'full' | 'sample';
+}
+
+/** Flatten only inspected statement evidence while preserving statement-line grain and coverage. */
+export function peakStatementWorkspace(snapshot: PeakSnapshot) {
+  const evidence = [...(snapshot.statementEvidence ?? [])].sort((left, right) =>
+    STATEMENT_METRIC_ORDER[left.metric] - STATEMENT_METRIC_ORDER[right.metric] || left.id.localeCompare(right.id)
+  );
+  const items: PeakStatementReviewItem[] = evidence.flatMap((group) => group.entries.map((entry) => ({
+    ...entry,
+    lineId: group.id,
+    lineLabel: group.label,
+    metric: group.metric,
+    ...(group.periodStart === undefined ? {} : { periodStart: group.periodStart }),
+    periodEnd: group.periodEnd,
+    lineAmount: group.amount,
+    coverage: group.coverage
+  }))).sort((left, right) =>
+    STATEMENT_METRIC_ORDER[left.metric] - STATEMENT_METRIC_ORDER[right.metric] ||
+    right.date.localeCompare(left.date) || left.journalNo.localeCompare(right.journalNo) || left.id.localeCompare(right.id)
+  );
+  return {
+    evidence,
+    items,
+    fullLines: evidence.filter((group) => group.coverage === 'full'),
+    sampleLines: evidence.filter((group) => group.coverage === 'sample')
   };
 }

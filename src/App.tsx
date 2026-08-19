@@ -16,7 +16,7 @@ import {
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
-import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakSnapshotAssurance, peakYearTH, selectPeakMonths } from './peak-view';
+import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakPeriodComparison, peakProfitSeries, peakSnapshotAssurance, peakStatementWorkspace, peakYearTH, selectPeakMonths } from './peak-view';
 import type { PeakPeriod } from './peak-view';
 import { buildTableHash, parseTableRoute } from './table-route';
 import type { TableFilters } from './table-route';
@@ -946,6 +946,8 @@ const PEAK_RECORD_COLS: Col[] = [
 ];
 const PEAK_MATCH_KIND_TH = { income: 'รายได้', expense: 'ค่าใช้จ่าย', journal: 'สมุดรายวัน' } as const;
 const PEAK_MATCH_SIGNAL_TH = { amount: 'ยอด', date: 'วันที่', reference: 'อ้างอิง', party: 'คู่ค้า' } as const;
+const PEAK_STATEMENT_SOURCE_TH = { income: 'รายได้', expense: 'ค่าใช้จ่าย', journal: 'สมุดรายวัน', opening: 'ยอดยกมา', adjustment: 'ปรับปรุง' } as const;
+const peakStatementPeriod = (periodStart: string | undefined, periodEnd: string) => periodStart ? `${dateTH(periodStart)}–${dateTH(periodEnd)}` : `ณ ${dateTH(periodEnd)}`;
 const openPeakFinance = () => window.open('https://secure.peakaccount.com/finance', '_blank', 'noopener,noreferrer');
 
 const PEAK_MODULES: Mod[] = [
@@ -1267,6 +1269,7 @@ const PEAK_MODULES: Mod[] = [
     panels: (d, _a, navigate, view) => {
       const s = peakOf(d);
       const performance = peakDashboardPanels(s, navigate, view.peakPeriod, view.onPeakPeriodChange)[0];
+      const statementReview = peakStatementWorkspace(s);
       return [
         { ...performance, dashboardArea: undefined, wide: true },
         {
@@ -1278,7 +1281,19 @@ const PEAK_MODULES: Mod[] = [
             ['เงินกู้ระยะสั้น', thb(s.financialPosition.shortTermLoans)],
             ['หนี้สินต่อทุน', `${s.financialPosition.debtToEquity.toFixed(1)} เท่า`, true]
           ]
-        }
+        },
+        ...(statementReview.evidence.length ? [{
+          title: 'ที่มาตัวเลข', sub: `${statementReview.evidence.length} บรรทัดงบ · ${statementReview.items.length} รายการบัญชี`, full: true,
+          lines: statementReview.evidence.map((group) => ({
+            left: group.label,
+            sub: `${peakStatementPeriod(group.periodStart, group.periodEnd)} · ${group.coverage === 'full' ? 'หลักฐานครบ' : 'ตัวอย่างหลักฐาน'}`,
+            right: thb(group.amount),
+            tone: group.coverage === 'sample' ? 'warn' as const : undefined,
+            actions: [{ label: 'ดู', ariaLabel: `ดูที่มาของ${group.label}`, variant: 'ghost' as const, run: () => navigate('peak-ledger', '', { lineId: group.id }) }]
+          })),
+          collapseAfter: 4,
+          note: 'หลักฐานครบจะรวมตรงกับบรรทัดงบ · ตัวอย่างอาจไม่ครบทุกรายการ'
+        } as PanelSpec] : [])
       ];
     },
     title: 'งบกำไรขาดทุนรายเดือน',
@@ -1293,6 +1308,58 @@ const PEAK_MODULES: Mod[] = [
       id: row.month, monthLabel: monthTH(row.month), revenue: row.revenue, expenses: row.expenses, profit: row.profit,
       status: row.partial ? 'open' : 'posted'
     }))
+  },
+  {
+    id: 'peak-ledger', th: 'ที่มาตัวเลข', en: 'Statement evidence', group: 'ข้อมูล PEAK', icon: BookOpenIcon,
+    desc: 'รายการบัญชีและเอกสารที่รองรับตัวเลขในงบจาก PEAK',
+    kpis: (d) => {
+      const review = peakStatementWorkspace(peakOf(d));
+      return [
+        { label: 'บรรทัดงบ', value: `${review.evidence.length} บรรทัด` },
+        { label: 'รายการบัญชี', value: `${review.items.length} รายการ` },
+        { label: 'หลักฐานครบ', sub: 'รวมตรงกับบรรทัดงบ', value: `${review.fullLines.length}/${review.evidence.length}`, tone: review.fullLines.length ? 'ok' : 'muted' },
+        { label: 'ตัวอย่าง', sub: 'อาจมีรายการอื่น', value: `${review.sampleLines.length} บรรทัด`, tone: review.sampleLines.length ? 'warn' : 'ok' }
+      ];
+    },
+    title: 'รายการบัญชีที่รองรับตัวเลข',
+    cols: [
+      { key: 'lineLabel', header: 'บรรทัดงบ' },
+      { key: 'description', header: 'รายการ' },
+      { key: 'date', header: 'วันที่', fmt: 'date' },
+      { key: 'reference', header: 'อ้างอิง', fmt: 'mono' },
+      { key: 'account', header: 'บัญชี', hide: 'lg' },
+      { key: 'amount', header: 'ยอด', fmt: 'money', right: true },
+      { key: 'sourceLabel', header: 'ที่มา', hide: 'lg' },
+      { key: 'coverageStatus', header: 'ขอบเขต', fmt: 'status' }
+    ],
+    rows: (d) => peakStatementWorkspace(peakOf(d)).items.map((item) => ({
+      id: `${item.lineId}:${item.id}`,
+      lineId: item.lineId,
+      lineLabel: item.lineLabel,
+      description: item.description,
+      date: item.date,
+      journalNo: item.journalNo,
+      reference: `${item.journalNo}${item.documentNo ? ` · ${item.documentNo}` : ''}`,
+      account: `${item.accountCode} · ${item.accountName}`,
+      amount: item.amount,
+      documentNo: item.documentNo ?? '—',
+      source: item.source,
+      sourceLabel: PEAK_STATEMENT_SOURCE_TH[item.source],
+      coverage: item.coverage,
+      coverageStatus: `statement_${item.coverage}`
+    })),
+    filters: (d) => {
+      const review = peakStatementWorkspace(peakOf(d));
+      return [
+        { key: 'lineId', label: 'บรรทัด', options: review.evidence.map((group) => ({ value: group.id, label: group.label })) },
+        { key: 'source', label: 'ที่มา', options: Array.from(new Set(review.items.map((item) => item.source))).map((source) => ({ value: source, label: PEAK_STATEMENT_SOURCE_TH[source] })) },
+        { key: 'coverage', label: 'ขอบเขต', options: [
+          { value: 'full', label: 'ครบ' },
+          { value: 'sample', label: 'ตัวอย่าง' }
+        ] }
+      ];
+    },
+    empty: 'ไม่พบรายการตามตัวกรอง'
   },
   {
     id: 'peak-quality', th: 'ตรวจสอบข้อมูล', en: 'Data checks', group: 'ข้อมูล PEAK', icon: AlertCircleIcon,
@@ -1312,6 +1379,7 @@ const PEAK_MODULES: Mod[] = [
       const s = peakOf(d);
       const assurance = peakSnapshotAssurance(s);
       const bankCoverage = assurance.fullBankAccounts + assurance.sampleBankAccounts;
+      const statementCoverage = assurance.fullStatementLines + assurance.sampleStatementLines;
       return [
         {
           title: 'จุดที่ต้องกระทบยอด', sub: 'ยังไม่สรุปค่าที่ขัดกันเป็นยอดเดียว', full: true,
@@ -1322,7 +1390,8 @@ const PEAK_MODULES: Mod[] = [
           lines: [
             { left: 'งบกำไรขาดทุน', sub: `${assurance.historyRange}${assurance.missingMonths ? ` · ขาด ${assurance.missingMonths} เดือน` : ''}`, right: `${assurance.historyCount} เดือน`, tone: assurance.missingMonths ? 'warn' : undefined },
             { left: 'รายการรายได้และค่าใช้จ่าย', sub: `${s.recentIncomeRows.length} รายได้ · ${s.recentExpenseRows.length} ค่าใช้จ่าย`, right: `${assurance.recordCount} แถว` },
-            { left: 'หลักฐานธนาคาร', sub: bankCoverage ? assurance.bankCoverageLabel : 'ไม่ได้แนบใน snapshot', right: bankCoverage ? `${assurance.bankItemCount} รายการ` : '—', tone: assurance.sampleBankAccounts ? 'warn' : undefined }
+            { left: 'หลักฐานธนาคาร', sub: bankCoverage ? assurance.bankCoverageLabel : 'ไม่ได้แนบใน snapshot', right: bankCoverage ? `${assurance.bankItemCount} รายการ` : '—', tone: assurance.sampleBankAccounts ? 'warn' : undefined },
+            { left: 'ที่มางบการเงิน', sub: statementCoverage ? assurance.statementCoverageLabel : 'ไม่ได้แนบใน snapshot', right: statementCoverage ? `${assurance.statementEntryCount} รายการ` : '—', tone: assurance.sampleStatementLines ? 'warn' : undefined }
           ]
         },
         {
@@ -1417,9 +1486,11 @@ function Workbench() {
   const storageIssueText = storageIssue === 'private-save' ? 'รีเฟรชแล้วข้อมูลจะหาย' :
     storageIssue === 'private-clear' ? 'ล้างข้อมูลเดิมไม่ได้ · ปิดแท็บนี้' :
       storageIssue === 'history' ? 'เบราว์เซอร์จำเวลาล่าสุดไม่ได้' : undefined;
-  const availableModules = useMemo(() => PEAK_MODULES.filter((module) =>
-    module.id !== 'peak-reconcile' || Boolean(peakSnapshot?.bankReconciliation?.some((group) => group.items.length))
-  ), [peakSnapshot]);
+  const availableModules = useMemo(() => PEAK_MODULES.filter((module) => {
+    if (module.id === 'peak-reconcile') return Boolean(peakSnapshot?.bankReconciliation?.some((group) => group.items.length));
+    if (module.id === 'peak-ledger') return Boolean(peakSnapshot?.statementEvidence?.some((group) => group.entries.length));
+    return true;
+  }), [peakSnapshot]);
   const availableGroups = PEAK_GROUPS;
   const [active, setActive] = useState(() => moduleFromLocation(availableModules));
   const [tableQuery, setTableQuery] = useState(() => parseTableRoute(window.location.hash).query);

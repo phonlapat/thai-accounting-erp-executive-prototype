@@ -389,6 +389,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
             <div><dt className="text-slate-500">แหล่งข้อมูล</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.sourceCount} หน้า{assurance.agingSources + assurance.staleSources ? ` · ช้า ${assurance.agingSources + assurance.staleSources}` : ''}</dd></div>
             <div><dt className="text-slate-500">รายการ</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.recordCount} แถว</dd></div>
             {assurance.fullBankAccounts + assurance.sampleBankAccounts ? <div><dt className="text-slate-500">หลักฐานธนาคาร</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.bankItemCount} รายการ</dd><small className="text-[10.5px] text-slate-500">{assurance.bankCoverageLabel}</small></div> : null}
+            {assurance.fullStatementLines + assurance.sampleStatementLines ? <div><dt className="text-slate-500">ที่มางบ</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.statementEntryCount} รายการ</dd><small className="text-[10.5px] text-slate-500">{assurance.statementCoverageLabel}</small></div> : null}
             <div className="col-span-2"><dt className="text-slate-500">ตรวจเมื่อ</dt><dd className="mt-0.5 font-medium text-slate-900">{dateTimeTH(validation.snapshot.capturedAt)} · v3</dd></div>
           </dl>
         </section> : null}
@@ -618,7 +619,7 @@ export function Panels({ items }: {items: PanelSpec[];}) {
         null}
           {p.lines?.length ? <>
             <ul className="divide-y divide-slate-200">
-              {p.lines.map((line, index) => <PanelLineItem key={line.left + (line.sub ?? '')} line={line} className={p.collapseAfter && index >= p.collapseAfter ? '!hidden min-[900px]:!grid' : undefined} />)}
+              {p.lines.map((line, index) => <PanelLineItem key={line.left + (line.sub ?? '')} line={line} className={p.collapseAfter && index >= p.collapseAfter ? '!hidden min-[900px]:!flex' : undefined} />)}
             </ul>
             {p.collapseAfter && p.lines.length > p.collapseAfter ?
               <details className="group border-t border-slate-200 min-[900px]:hidden">

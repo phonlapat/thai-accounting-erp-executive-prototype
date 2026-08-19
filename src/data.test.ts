@@ -144,6 +144,103 @@ describe('PEAK snapshot boundary', () => {
     expect(sanitizePeakSnapshot(input)?.bankReconciliation?.[0].coverage).toBe('sample');
   });
 
+  it('preserves balanced statement-to-ledger evidence and strips unknown entry fields', () => {
+    const input = validSnapshot();
+    input.statementEvidence = [{
+      id: 'statement-revenue', metric: 'ytd_revenue', label: 'รายได้รวม',
+      periodStart: '2026-01-01', periodEnd: '2026-08-12', amount: 1000, coverage: 'full',
+      entries: [
+        { id: 'entry-1', date: '2026-08-12', journalNo: 'JV-001', accountCode: '4100', accountName: 'รายได้จากการขาย', description: 'ขายสินค้า', amount: 600, source: 'income', documentNo: 'IV-001' },
+        { id: 'entry-2', date: '2026-08-11', journalNo: 'JV-002', accountCode: '4200', accountName: 'รายได้บริการ', description: 'ให้บริการ', amount: 400, source: 'journal' }
+      ]
+    }];
+    (input.statementEvidence[0].entries[0] as typeof input.statementEvidence[0]['entries'][number] & { privateMemo?: string }).privateMemo = 'must-not-survive';
+
+    const clean = sanitizePeakSnapshot(input);
+    expect(clean?.statementEvidence?.[0]).toMatchObject({ metric: 'ytd_revenue', coverage: 'full', amount: 1000 });
+    expect(clean?.statementEvidence?.[0].entries).toHaveLength(2);
+    expect(clean?.statementEvidence?.[0].entries[0]).not.toHaveProperty('privateMemo');
+  });
+
+  it('accepts explicitly sampled statement evidence without treating the sample as the total', () => {
+    const input = validSnapshot();
+    input.statementEvidence = [{
+      id: 'statement-expenses', metric: 'ytd_expenses', label: 'ค่าใช้จ่ายรวม',
+      periodStart: '2026-01-01', periodEnd: '2026-08-12', amount: 700, coverage: 'sample',
+      entries: [{ id: 'expense-entry-1', date: '2026-08-10', journalNo: 'JV-010', accountCode: '5100', accountName: 'ค่าใช้จ่าย', description: 'รายการตัวอย่าง', amount: 100, source: 'expense', documentNo: 'EXP-010' }]
+    }];
+
+    expect(isPeakSnapshot(input)).toBe(true);
+    expect(sanitizePeakSnapshot(input)?.statementEvidence?.[0].coverage).toBe('sample');
+  });
+
+  it('rejects statement evidence with a false total or the wrong reporting period', () => {
+    const falseTotal = validSnapshot();
+    falseTotal.statementEvidence = [{
+      id: 'statement-assets', metric: 'total_assets', label: 'สินทรัพย์รวม',
+      periodEnd: '2026-08-12', amount: 1000, coverage: 'full',
+      entries: [{ id: 'asset-entry-1', date: '2026-08-12', journalNo: 'JV-020', accountCode: '1000', accountName: 'สินทรัพย์', description: 'ยอดคงเหลือ', amount: 900, source: 'opening' }]
+    }];
+    expect(isPeakSnapshot(falseTotal)).toBe(false);
+
+    const wrongPeriod = validSnapshot();
+    wrongPeriod.statementEvidence = [{
+      id: 'statement-equity', metric: 'equity', label: 'ส่วนของผู้ถือหุ้น',
+      periodEnd: '2026-08-11', amount: 700, coverage: 'sample',
+      entries: [{ id: 'equity-entry-1', date: '2026-08-11', journalNo: 'JV-021', accountCode: '3000', accountName: 'ส่วนของผู้ถือหุ้น', description: 'ยอดคงเหลือ', amount: 700, source: 'opening' }]
+    }];
+    expect(isPeakSnapshot(wrongPeriod)).toBe(false);
+  });
+
+  it('rejects future, duplicate, or mixed-grain statement entries', () => {
+    const futureEntry = validSnapshot();
+    futureEntry.statementEvidence = [{
+      id: 'statement-cash', metric: 'cash_and_equivalents', label: 'เงินสดและรายการเทียบเท่าเงินสด',
+      periodEnd: '2026-08-12', amount: 600, coverage: 'sample',
+      entries: [{ id: 'cash-entry', date: '2026-08-13', journalNo: 'JV-030', accountCode: '1010', accountName: 'เงินสด', description: 'อนาคต', amount: 100, source: 'journal' }]
+    }];
+    expect(isPeakSnapshot(futureEntry)).toBe(false);
+
+    const duplicateEntry = validSnapshot();
+    duplicateEntry.statementEvidence = [
+      {
+        id: 'statement-revenue', metric: 'ytd_revenue', label: 'รายได้รวม', periodStart: '2026-01-01', periodEnd: '2026-08-12', amount: 1000, coverage: 'sample',
+        entries: [{ id: 'duplicate-entry', date: '2026-08-12', journalNo: 'JV-031', accountCode: '4100', accountName: 'รายได้', description: 'รายได้', amount: 100, source: 'income' }]
+      },
+      {
+        id: 'statement-expenses', metric: 'ytd_expenses', label: 'ค่าใช้จ่ายรวม', periodStart: '2026-01-01', periodEnd: '2026-08-12', amount: 700, coverage: 'sample',
+        entries: [{ id: 'duplicate-entry', date: '2026-08-12', journalNo: 'JV-032', accountCode: '5100', accountName: 'ค่าใช้จ่าย', description: 'ค่าใช้จ่าย', amount: 100, source: 'expense' }]
+      }
+    ];
+    expect(isPeakSnapshot(duplicateEntry)).toBe(false);
+
+    const duplicateMetric = validSnapshot();
+    duplicateMetric.statementEvidence = [
+      {
+        id: 'revenue-a', metric: 'ytd_revenue', label: 'รายได้รวม ก', periodStart: '2026-01-01', periodEnd: '2026-08-12', amount: 1000, coverage: 'sample',
+        entries: [{ id: 'revenue-a-entry', date: '2026-08-12', journalNo: 'JV-034', accountCode: '4100', accountName: 'รายได้', description: 'รายได้ ก', amount: 100, source: 'income' }]
+      },
+      {
+        id: 'revenue-b', metric: 'ytd_revenue', label: 'รายได้รวม ข', periodStart: '2026-01-01', periodEnd: '2026-08-12', amount: 1000, coverage: 'sample',
+        entries: [{ id: 'revenue-b-entry', date: '2026-08-12', journalNo: 'JV-035', accountCode: '4100', accountName: 'รายได้', description: 'รายได้ ข', amount: 100, source: 'income' }]
+      }
+    ];
+    expect(isPeakSnapshot(duplicateMetric)).toBe(false);
+
+    const duplicateGroup = structuredClone(duplicateMetric);
+    const duplicateGroups = duplicateGroup.statementEvidence;
+    if (!duplicateGroups) throw new Error('test setup failed');
+    duplicateGroups[1] = { ...duplicateGroups[1], id: 'revenue-a', metric: 'ytd_expenses', label: 'ค่าใช้จ่ายรวม', amount: 700 };
+    expect(isPeakSnapshot(duplicateGroup)).toBe(false);
+
+    const balanceWithRange = validSnapshot();
+    balanceWithRange.statementEvidence = [{
+      id: 'statement-liabilities', metric: 'total_liabilities', label: 'หนี้สินรวม', periodStart: '2026-01-01', periodEnd: '2026-08-12', amount: 300, coverage: 'sample',
+      entries: [{ id: 'liability-entry', date: '2026-08-12', journalNo: 'JV-033', accountCode: '2000', accountName: 'หนี้สิน', description: 'ยอดคงเหลือ', amount: 300, source: 'opening' }]
+    }];
+    expect(isPeakSnapshot(balanceWithRange)).toBe(false);
+  });
+
   it('rejects reconciliation items with false coverage or unsupported match evidence', () => {
     const mismatchedCoverage = validSnapshot();
     mismatchedCoverage.financeAccounts[1] = { ...mismatchedCoverage.financeAccounts[1], reconciliationStatus: 'partial', unmatchedCount: 2 };
@@ -231,6 +328,20 @@ describe('PEAK snapshot boundary', () => {
       amount: 100, status: 'paid', activity: 'รับชำระแล้ว', activityAt: '2026-08-12T18:00:00+07:00'
     }];
     expect(isPeakSnapshot(futureActivity)).toBe(false);
+
+    const impossibleIssueDate = validSnapshot();
+    impossibleIssueDate.recentIncomeRows = [{
+      id: 'income-invalid-date', documentNo: 'IV-TEST', party: 'ลูกค้า ก', issueDate: '2026-02-30',
+      amount: 100, status: 'paid', activity: 'รับชำระแล้ว', activityAt: '2026-08-12T17:00:00+07:00'
+    }];
+    expect(isPeakSnapshot(impossibleIssueDate)).toBe(false);
+
+    const futureIssueDate = validSnapshot();
+    futureIssueDate.recentExpenseRows = [{
+      id: 'expense-future-date', documentNo: 'EXP-TEST', party: 'ผู้ขาย ก', issueDate: '2026-08-13',
+      amount: 100, status: 'paid', activity: 'จ่ายแล้ว', activityAt: '2026-08-12T17:00:00+07:00'
+    }];
+    expect(isPeakSnapshot(futureIssueDate)).toBe(false);
   });
 });
 
