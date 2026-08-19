@@ -12,7 +12,7 @@ Choose **เลือก snapshot PEAK** and load a validated schema-v3 snapshot
 
 PEAK mode is source-aware: it records when each PEAK page was inspected, keeps repeated document numbers when they represent different status-history rows, and shows unresolved reconciliation differences without collapsing them into a false single total. It is still a manually captured snapshot, not a live PEAK API connection.
 
-The optional account-level bank reconciliation fields are documented in [docs/PEAK-SNAPSHOT.md](docs/PEAK-SNAPSHOT.md). Missing evidence stays unknown and is never converted to zero or a completed status.
+The optional account-level and transaction-level bank reconciliation fields are documented in [docs/PEAK-SNAPSHOT.md](docs/PEAK-SNAPSHOT.md). Missing evidence stays unknown and is never converted to zero, a completed status, or a suggested match.
 
 > Prototype notice: this project is intended for private executive review. It is not production accounting software and should not be used for tax filing, payroll calculation, or authoritative financial reporting.
 

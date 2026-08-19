@@ -94,6 +94,89 @@ describe('PEAK snapshot boundary', () => {
     });
   });
 
+  it('preserves audited unmatched items and explicit candidate signals', () => {
+    const input = validSnapshot();
+    input.financeAccounts[1] = {
+      ...input.financeAccounts[1],
+      reconciliationStatus: 'partial',
+      unmatchedCount: 2
+    };
+    input.bankReconciliation = [{
+      accountId: 'bank',
+      coverage: 'full',
+      items: [
+        {
+          id: 'bank-row-1', date: '2026-08-12', description: 'รับโอนตัวอย่าง', direction: 'inflow', amount: 150,
+          reference: 'IV-TEST-001',
+          candidate: {
+            kind: 'income', documentNo: 'IV-TEST-001', party: 'บริษัท ตัวอย่าง จำกัด', issueDate: '2026-08-12',
+            amount: 150, confidence: 'high', signals: ['amount', 'date', 'reference']
+          }
+        },
+        { id: 'bank-row-2', date: '2026-08-11', description: 'ค่าธรรมเนียมตัวอย่าง', direction: 'outflow', amount: 20 }
+      ]
+    }];
+
+    const clean = sanitizePeakSnapshot(input);
+    expect(clean?.bankReconciliation?.[0]).toMatchObject({ accountId: 'bank', coverage: 'full' });
+    expect(clean?.bankReconciliation?.[0].items[0].candidate).toEqual(input.bankReconciliation[0].items[0].candidate);
+  });
+
+  it('accepts a bounded sample without presenting it as full coverage', () => {
+    const input = validSnapshot();
+    input.financeAccounts[1] = { ...input.financeAccounts[1], reconciliationStatus: 'partial', unmatchedCount: 4 };
+    input.bankReconciliation = [{
+      accountId: 'bank', coverage: 'sample',
+      items: [{ id: 'sample-1', date: '2026-08-12', description: 'รายการตัวอย่าง', direction: 'inflow', amount: 100 }]
+    }];
+    expect(isPeakSnapshot(input)).toBe(true);
+    expect(sanitizePeakSnapshot(input)?.bankReconciliation?.[0].coverage).toBe('sample');
+  });
+
+  it('rejects reconciliation items with false coverage or unsupported match evidence', () => {
+    const mismatchedCoverage = validSnapshot();
+    mismatchedCoverage.financeAccounts[1] = { ...mismatchedCoverage.financeAccounts[1], reconciliationStatus: 'partial', unmatchedCount: 2 };
+    mismatchedCoverage.bankReconciliation = [{
+      accountId: 'bank', coverage: 'full',
+      items: [{ id: 'only-one', date: '2026-08-12', description: 'รายการเดียว', direction: 'inflow', amount: 100 }]
+    }];
+    expect(isPeakSnapshot(mismatchedCoverage)).toBe(false);
+
+    const cashEvidence = validSnapshot();
+    cashEvidence.financeAccounts[1] = { ...cashEvidence.financeAccounts[1], reconciliationStatus: 'partial', unmatchedCount: 1 };
+    cashEvidence.bankReconciliation = [{
+      accountId: 'cash', coverage: 'sample',
+      items: [{ id: 'cash-row', date: '2026-08-12', description: 'ไม่ใช่บัญชีธนาคาร', direction: 'inflow', amount: 100 }]
+    }];
+    expect(isPeakSnapshot(cashEvidence)).toBe(false);
+
+    const weakHighConfidence = validSnapshot();
+    weakHighConfidence.financeAccounts[1] = { ...weakHighConfidence.financeAccounts[1], reconciliationStatus: 'partial', unmatchedCount: 1 };
+    weakHighConfidence.bankReconciliation = [{
+      accountId: 'bank', coverage: 'full', items: [{
+        id: 'weak-match', date: '2026-08-12', description: 'หลักฐานไม่พอ', direction: 'inflow', amount: 100,
+        candidate: {
+          kind: 'income', documentNo: 'IV-TEST-002', party: 'บริษัท ตัวอย่าง จำกัด', issueDate: '2026-08-12',
+          amount: 100, confidence: 'high', signals: ['amount', 'date']
+        }
+      }]
+    }];
+    expect(isPeakSnapshot(weakHighConfidence)).toBe(false);
+
+    const missingPartySignal = validSnapshot();
+    missingPartySignal.financeAccounts[1] = { ...missingPartySignal.financeAccounts[1], reconciliationStatus: 'partial', unmatchedCount: 1 };
+    missingPartySignal.bankReconciliation = [{
+      accountId: 'bank', coverage: 'full', items: [{
+        id: 'missing-party', date: '2026-08-12', description: 'ระบุสัญญาณที่ไม่มีหลักฐาน', direction: 'inflow', amount: 100,
+        candidate: {
+          kind: 'journal', documentNo: 'JV-TEST-001', issueDate: '2026-08-12',
+          amount: 100, confidence: 'medium', signals: ['amount', 'party']
+        }
+      }]
+    }];
+    expect(isPeakSnapshot(missingPartySignal)).toBe(false);
+  });
+
   it('rejects contradictory or misplaced bank reconciliation evidence', () => {
     const onCash = validSnapshot();
     onCash.financeAccounts[0].reconciliationStatus = 'complete';

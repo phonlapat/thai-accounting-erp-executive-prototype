@@ -46,6 +46,9 @@ export interface Activity {id: string;at: string;actor: string;text: string;modu
 /** A private, browser-local executive snapshot imported from PEAK. */
 export type PeakRecordStatus = 'paid' | 'voided' | 'outstanding' | 'overdue' | 'await_receipt';
 export type PeakBankReconciliationStatus = 'not_started' | 'partial' | 'complete';
+export type PeakBankDirection = 'inflow' | 'outflow';
+export type PeakMatchConfidence = 'high' | 'medium';
+export type PeakMatchSignal = 'amount' | 'date' | 'reference' | 'party';
 export interface PeakRecordRow {
   id: string;documentNo: string;party: string;issueDate: string;amount: number;
   status: PeakRecordStatus;activity: string;activityAt: string;
@@ -53,6 +56,17 @@ export interface PeakRecordRow {
 export interface PeakFinanceAccount {
   id: string;type: 'cash' | 'bank' | 'ewallet';name: string;balance: number;
   reconciliationStatus?: PeakBankReconciliationStatus;unmatchedCount?: number;lastReconciledAt?: string;
+}
+export interface PeakMatchCandidate {
+  kind: 'income' | 'expense' | 'journal';documentNo: string;party?: string;issueDate: string;
+  amount: number;confidence: PeakMatchConfidence;signals: PeakMatchSignal[];
+}
+export interface PeakBankReconciliationItem {
+  id: string;date: string;description: string;direction: PeakBankDirection;amount: number;
+  reference?: string;candidate?: PeakMatchCandidate;
+}
+export interface PeakBankReconciliationEvidence {
+  accountId: string;coverage: 'full' | 'sample';items: PeakBankReconciliationItem[];
 }
 export interface PeakSourceFreshness {
   key: string;label: string;asOf: string;scope: string;
@@ -93,6 +107,7 @@ export interface PeakSnapshot {
     total: number;cash: number;bank: number;eWallet: number;reconciliationRequired: boolean;
   };
   financeAccounts: PeakFinanceAccount[];
+  bankReconciliation?: PeakBankReconciliationEvidence[];
   recentIncomeRows: PeakRecordRow[];
   recentExpenseRows: PeakRecordRow[];
   sources: PeakSourceFreshness[];
@@ -132,6 +147,7 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
   if (typeof snapshot.capturedAt !== 'string' || !Number.isFinite(Date.parse(snapshot.capturedAt))) return false;
   const asOfTime = Date.parse(snapshot.asOf);
   const capturedTime = Date.parse(snapshot.capturedAt);
+  const capturedDayTH = new Date(capturedTime + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
   if (asOfTime > now + MAX_CLOCK_SKEW_MS || capturedTime > now + MAX_CLOCK_SKEW_MS) return false;
   if (asOfTime > capturedTime + MAX_CLOCK_SKEW_MS) return false;
   if (!snapshot.ytd || !snapshot.income || !snapshot.expense || !snapshot.taxes || !snapshot.salesMix ||
@@ -198,6 +214,46 @@ export function isPeakSnapshot(value: unknown, now = Date.now()): value is PeakS
   if (!near(financeAccounts.reduce((sum, account) => sum + account.balance, 0), snapshot.cashChannels.total)) return false;
   const accountTypeTotal = (type: PeakFinanceAccount['type']) => financeAccounts.filter((account) => account.type === type).reduce((sum, account) => sum + account.balance, 0);
   if (!near(accountTypeTotal('cash'), snapshot.cashChannels.cash) || !near(accountTypeTotal('bank'), snapshot.cashChannels.bank) || !near(accountTypeTotal('ewallet'), snapshot.cashChannels.eWallet)) return false;
+  if (snapshot.bankReconciliation !== undefined) {
+    if (!Array.isArray(snapshot.bankReconciliation) || snapshot.bankReconciliation.length > 20) return false;
+    if (new Set(snapshot.bankReconciliation.map((evidence) => evidence?.accountId)).size !== snapshot.bankReconciliation.length) return false;
+    const allItemIds: string[] = [];
+    let itemCount = 0;
+    for (const evidence of snapshot.bankReconciliation) {
+      if (!evidence || typeof evidence.accountId !== 'string' || !['full', 'sample'].includes(evidence.coverage) || !Array.isArray(evidence.items)) return false;
+      const account = financeAccounts.find((candidate) => candidate.id === evidence.accountId);
+      if (!account || account.type !== 'bank' || !account.reconciliationStatus || account.reconciliationStatus === 'complete') return false;
+      if (evidence.items.length > 200) return false;
+      itemCount += evidence.items.length;
+      if (itemCount > 200) return false;
+      if (evidence.coverage === 'full' && (account.unmatchedCount === undefined || account.unmatchedCount !== evidence.items.length)) return false;
+      if (evidence.coverage === 'sample' && account.unmatchedCount !== undefined && evidence.items.length > account.unmatchedCount) return false;
+      for (const item of evidence.items) {
+        if (!item || typeof item.id !== 'string' || !item.id.trim() || item.id.length > 100 ||
+          !/^\d{4}-\d{2}-\d{2}$/.test(item.date) || item.date > capturedDayTH ||
+          typeof item.description !== 'string' || !item.description.trim() || item.description.length > 200 ||
+          !['inflow', 'outflow'].includes(item.direction) || !finite(item.amount) || item.amount <= 0 ||
+          (item.reference !== undefined && (typeof item.reference !== 'string' || !item.reference.trim() || item.reference.length > 100))) return false;
+        allItemIds.push(item.id);
+        if (item.candidate !== undefined) {
+          const candidate = item.candidate;
+          if (!candidate || !['income', 'expense', 'journal'].includes(candidate.kind) ||
+            typeof candidate.documentNo !== 'string' || !candidate.documentNo.trim() || candidate.documentNo.length > 80 ||
+            (candidate.party !== undefined && (typeof candidate.party !== 'string' || !candidate.party.trim() || candidate.party.length > 200)) ||
+            !/^\d{4}-\d{2}-\d{2}$/.test(candidate.issueDate) || candidate.issueDate > capturedDayTH ||
+            !finite(candidate.amount) || candidate.amount <= 0 || !['high', 'medium'].includes(candidate.confidence) ||
+            !Array.isArray(candidate.signals) || candidate.signals.length < 2 || candidate.signals.length > 4 ||
+            !candidate.signals.every((signal) => ['amount', 'date', 'reference', 'party'].includes(signal)) ||
+            new Set(candidate.signals).size !== candidate.signals.length ||
+            (candidate.confidence === 'high' && candidate.signals.length < 3) ||
+            (candidate.signals.includes('amount') && !near(candidate.amount, item.amount)) ||
+            (candidate.signals.includes('reference') && item.reference === undefined) ||
+            (candidate.signals.includes('party') && candidate.party === undefined)) return false;
+        }
+      }
+    }
+    if (new Set(allItemIds).size !== allItemIds.length) return false;
+  }
   const validRecordRows = (rows: PeakRecordRow[] | undefined) => Array.isArray(rows) && rows.length <= 50 && rows.every((row) => Boolean(
     row && typeof row.id === 'string' && row.id.length <= 100 && typeof row.documentNo === 'string' && row.documentNo.trim() && row.documentNo.length <= 80 &&
     typeof row.party === 'string' && row.party.trim() && row.party.length <= 200 && /^\d{4}-\d{2}-\d{2}$/.test(row.issueDate) &&
@@ -272,6 +328,24 @@ export function sanitizePeakSnapshot(value: unknown): PeakSnapshot | undefined {
       ...(account.unmatchedCount === undefined ? {} : { unmatchedCount: account.unmatchedCount }),
       ...(account.lastReconciledAt === undefined ? {} : { lastReconciledAt: account.lastReconciledAt })
     })),
+    ...(value.bankReconciliation === undefined ? {} : {
+      bankReconciliation: value.bankReconciliation.map((evidence) => ({
+        accountId: evidence.accountId,
+        coverage: evidence.coverage,
+        items: evidence.items.map((item) => ({
+          id: item.id, date: item.date, description: item.description, direction: item.direction, amount: item.amount,
+          ...(item.reference === undefined ? {} : { reference: item.reference }),
+          ...(item.candidate === undefined ? {} : {
+            candidate: {
+              kind: item.candidate.kind, documentNo: item.candidate.documentNo,
+              ...(item.candidate.party === undefined ? {} : { party: item.candidate.party }),
+              issueDate: item.candidate.issueDate, amount: item.candidate.amount,
+              confidence: item.candidate.confidence, signals: item.candidate.signals.slice()
+            }
+          })
+        }))
+      }))
+    }),
     recentIncomeRows: value.recentIncomeRows.map((row) => ({
       id: row.id, documentNo: row.documentNo, party: row.party, issueDate: row.issueDate,
       amount: row.amount, status: row.status, activity: row.activity, activityAt: row.activityAt
@@ -368,6 +442,9 @@ export const STATUS: Record<string, {th: string;en: string;tone: Tone;}> = {
   reconcile_not_started: { th: 'ยังไม่เริ่ม', en: 'Not started', tone: 'bad' },
   reconcile_partial: { th: 'บางส่วน', en: 'Partial', tone: 'warn' },
   reconcile_complete: { th: 'ครบแล้ว', en: 'Complete', tone: 'ok' },
+  match_high: { th: 'น่าจะตรง', en: 'Likely match', tone: 'ok' },
+  match_medium: { th: 'ควรตรวจ', en: 'Review', tone: 'warn' },
+  match_none: { th: 'ยังไม่มีคู่', en: 'No match', tone: 'muted' },
   active: { th: 'ใช้งาน', en: 'Active', tone: 'ok' },
   planning: { th: 'เตรียมงาน', en: 'Planning', tone: 'muted' },
   disposed: { th: 'จำหน่ายแล้ว', en: 'Disposed', tone: 'muted' },

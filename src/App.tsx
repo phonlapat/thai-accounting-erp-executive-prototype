@@ -16,7 +16,7 @@ import {
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
 import type { Col, FilterSpec, PanelSpec, RowAction, RowData } from './ui';
-import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakCashReconciliation, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
+import { PEAK_PERIOD_KEY, availablePeakPeriods, effectivePeakPeriod, isPeakPeriod, peakBankReconciliationWorkspace, peakCashReconciliation, peakMonthRange, peakYearTH, selectPeakMonths } from './peak-view';
 import type { PeakPeriod } from './peak-view';
 import { buildTableHash, parseTableRoute } from './table-route';
 import type { TableFilters } from './table-route';
@@ -46,11 +46,12 @@ const daysBetween = (from: string, to: string) => Math.floor((Date.parse(to) - D
 
 interface PeakAttentionItem {
   left: string;sub: string;right: string;tone: 'warn' | 'bad';priority: number;
-  destination: 'peak-income' | 'peak-expenses' | 'peak-finance' | 'peak-quality';actionLabel: string;filters?: TableFilters;
+  destination: 'peak-income' | 'peak-expenses' | 'peak-finance' | 'peak-reconcile' | 'peak-quality';actionLabel: string;filters?: TableFilters;
 }
 
 function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
   const reconciliation = peakCashReconciliation(snapshot);
+  const bankReview = peakBankReconciliationWorkspace(snapshot);
   const findings: PeakAttentionItem[] = snapshot.qualityFindings.map((finding) => ({
     left: finding.title,
     sub: finding.detail,
@@ -66,7 +67,8 @@ function peakAttentionItems(snapshot: PeakSnapshot): PeakAttentionItem[] {
     sub: `${reconciliation.incompleteAccounts.length} จาก ${reconciliation.accountEvidence.length} บัญชี`,
     right: reconciliation.unmatchedCountKnown ? `${num(reconciliation.unmatchedCount)} รายการ` : 'ต้องตรวจ',
     tone: notStartedAccounts ? 'bad' : 'warn', priority: notStartedAccounts ? 450 : 325,
-    destination: 'peak-finance', actionLabel: 'เปิด', filters: { reconciliation: 'incomplete' }
+    destination: bankReview.items.length ? 'peak-reconcile' : 'peak-finance', actionLabel: 'เปิด',
+    filters: bankReview.items.length ? undefined : { reconciliation: 'incomplete' }
   }] : [];
   const work: Array<PeakAttentionItem & {count: number;amount: number;}> = [
   {
@@ -934,6 +936,9 @@ const PEAK_RECORD_COLS: Col[] = [
   { key: 'updated', header: 'เวลา', hide: 'lg' },
   { key: 'status', header: 'สถานะ', fmt: 'status' }
 ];
+const PEAK_MATCH_KIND_TH = { income: 'รายได้', expense: 'ค่าใช้จ่าย', journal: 'สมุดรายวัน' } as const;
+const PEAK_MATCH_SIGNAL_TH = { amount: 'ยอด', date: 'วันที่', reference: 'อ้างอิง', party: 'คู่ค้า' } as const;
+const openPeakFinance = () => window.open('https://secure.peakaccount.com/finance', '_blank', 'noopener,noreferrer');
 
 const PEAK_MODULES: Mod[] = [
   {
@@ -1061,9 +1066,10 @@ const PEAK_MODULES: Mod[] = [
         reconciliationKpi
       ];
     },
-    panels: (d) => {
+    panels: (d, _a, navigate) => {
       const s = peakOf(d);
       const reconciliation = peakCashReconciliation(s);
+      const bankReview = peakBankReconciliationWorkspace(s);
       const hasCashDifference = Math.abs(reconciliation.difference) > 0.02;
       const totalsConflict = hasCashDifference || Boolean(reconciliation.finding);
       const requiredLines: PanelSpec['lines'] = [
@@ -1082,7 +1088,11 @@ const PEAK_MODULES: Mod[] = [
         reconciliation.required ? {
           title: 'ต้องกระทบยอด', sub: reconciliation.finding?.title ?? (reconciliation.incompleteAccounts.length ? `ยังไม่ครบ ${reconciliation.incompleteAccounts.length} บัญชี` : hasCashDifference ? 'ยอดจาก PEAK ต่างกัน' : 'PEAK ระบุให้ตรวจสอบ'), full: true,
           lines: requiredLines,
-          note: 'ตรวจช่วงวันที่และกระทบยอดบัญชีธนาคารก่อนตัดสินใจจ่ายเงิน'
+          note: 'ตรวจช่วงวันที่และกระทบยอดบัญชีธนาคารก่อนตัดสินใจจ่ายเงิน',
+          action: bankReview.items.length ? {
+            label: 'ดูรายการ', ariaLabel: 'ดูรายการธนาคารที่รอตรวจ', variant: 'ghost',
+            run: () => navigate('peak-reconcile')
+          } : undefined
         } : {
           title: 'ยอดสำคัญตรงกัน', sub: `ตรวจ ณ ${dateTH(s.asOf.slice(0, 10))}`, full: true,
           lines: [
@@ -1134,6 +1144,105 @@ const PEAK_MODULES: Mod[] = [
       ];
     },
     empty: 'ไม่พบบัญชีตามตัวกรอง'
+  },
+  {
+    id: 'peak-reconcile', th: 'รายการรอกระทบยอด', en: 'Reconciliation review', group: 'ข้อมูล PEAK', icon: ClipboardCheckIcon,
+    desc: 'รายการธนาคารและคู่เอกสารจากไฟล์ PEAK',
+    kpis: (d) => {
+      const snapshot = peakOf(d);
+      const review = peakBankReconciliationWorkspace(snapshot);
+      const reconciliation = peakCashReconciliation(snapshot);
+      return [
+        {
+          label: 'ในไฟล์',
+          sub: reconciliation.unmatchedCountKnown ? `จาก ${reconciliation.unmatchedCount} ที่ PEAK ระบุ` : `${review.evidence.length} บัญชี`,
+          value: `${review.items.length} รายการ`, tone: review.items.length ? 'warn' : 'ok'
+        },
+        { label: 'มีคู่แนะนำ', sub: `น่าจะตรง ${review.highConfidence.length}`, value: `${review.suggestedItems.length} รายการ`, tone: review.suggestedItems.length ? 'ok' : 'muted' },
+        { label: 'เงินเข้า', value: thb(review.inflowAmount, true), tone: 'info' },
+        { label: 'เงินออก', value: thb(review.outflowAmount, true), tone: review.outflowAmount ? 'warn' : 'muted' }
+      ];
+    },
+    panels: (d, _a, navigate) => {
+      const s = peakOf(d);
+      const review = peakBankReconciliationWorkspace(s);
+      const priorityLines: NonNullable<PanelSpec['lines']> = [];
+      if (review.highConfidence.length) priorityLines.push({
+          left: 'น่าจะตรง', sub: 'ตรงอย่างน้อย 3 จุด', right: `${review.highConfidence.length} รายการ`, tone: 'ok',
+          actions: [{ label: 'ดู', ariaLabel: 'ดูรายการที่น่าจะตรง', run: () => navigate('peak-reconcile', '', { match: 'high' }), variant: 'ghost' }]
+        });
+      if (review.mediumConfidence.length) priorityLines.push({
+          left: 'ควรตรวจ', sub: 'ตรง 2 จุด', right: `${review.mediumConfidence.length} รายการ`, tone: 'warn',
+          actions: [{ label: 'ดู', ariaLabel: 'ดูรายการที่ควรตรวจ', run: () => navigate('peak-reconcile', '', { match: 'medium' }), variant: 'ghost' }]
+        });
+      if (review.withoutCandidate.length) priorityLines.push({
+          left: 'ยังไม่มีคู่', sub: 'ค้นหาเอกสารใน PEAK', right: `${review.withoutCandidate.length} รายการ`,
+          actions: [{ label: 'ดู', ariaLabel: 'ดูรายการที่ยังไม่มีคู่', run: () => navigate('peak-reconcile', '', { match: 'none' }), variant: 'ghost' }]
+        });
+      return [
+        {
+          title: 'ลำดับตรวจ', sub: 'เริ่มจากคู่ที่ชัดที่สุด', wide: true,
+          lines: priorityLines, empty: 'ไม่มีรายการรอตรวจ',
+          note: 'อ่านอย่างเดียว · ยืนยันการจับคู่ใน PEAK'
+        },
+        {
+          title: 'ขอบเขต', sub: review.sampleCoverageAccounts.length ? 'มีข้อมูลบางส่วน' : 'ครบทุกรายการที่ระบุ',
+          lines: review.evidence.map((group) => {
+            const account = s.financeAccounts.find((item) => item.id === group.accountId);
+            return {
+              left: account?.name ?? group.accountId,
+              sub: group.coverage === 'full' ? 'ครบตามจำนวนที่ระบุ' : 'ตัวอย่าง · อาจมีรายการอื่น',
+              right: `${group.items.length} รายการ`, tone: group.coverage === 'full' ? 'ok' as const : 'warn' as const
+            };
+          }),
+          action: { label: 'เปิด PEAK', ariaLabel: 'เปิดหน้าเงินสดและธนาคารใน PEAK', variant: 'ghost', run: openPeakFinance }
+        }
+      ];
+    },
+    title: 'รายการธนาคารที่รอตรวจ',
+    cols: [
+      { key: 'description', header: 'รายการ' },
+      { key: 'accountName', header: 'บัญชี' },
+      { key: 'date', header: 'วันที่', fmt: 'date', hide: 'sm' },
+      { key: 'directionLabel', header: 'ทิศทาง' },
+      { key: 'amount', header: 'ยอด', fmt: 'money', right: true },
+      { key: 'matchStatus', header: 'คู่แนะนำ', fmt: 'status' },
+      { key: 'candidateDocument', header: 'เอกสารที่พบ' },
+      { key: 'signals', header: 'ตรงกันที่', hide: 'lg' }
+    ],
+    rows: (d) => peakBankReconciliationWorkspace(peakOf(d)).items.map((item) => ({
+      id: item.id,
+      description: item.description,
+      accountId: item.accountId,
+      accountName: item.accountName,
+      date: item.date,
+      direction: item.direction,
+      directionLabel: item.direction === 'inflow' ? 'เงินเข้า' : 'เงินออก',
+      amount: item.amount,
+      match: item.candidate?.confidence ?? 'none',
+      matchStatus: `match_${item.candidate?.confidence ?? 'none'}`,
+      candidateDocument: item.candidate ? `${PEAK_MATCH_KIND_TH[item.candidate.kind]} ${item.candidate.documentNo}${item.candidate.party ? ` · ${item.candidate.party}` : ''}` : undefined,
+      signals: item.candidate?.signals.map((signal) => PEAK_MATCH_SIGNAL_TH[signal]).join(' · ')
+    })),
+    filters: (d) => {
+      const review = peakBankReconciliationWorkspace(peakOf(d));
+      return [
+        { key: 'accountId', label: 'บัญชี', options: review.evidence.map((group) => ({
+          value: group.accountId,
+          label: peakOf(d).financeAccounts.find((account) => account.id === group.accountId)?.name ?? group.accountId
+        })) },
+        { key: 'direction', label: 'เงิน', options: [
+          { value: 'inflow', label: 'เข้า' },
+          { value: 'outflow', label: 'ออก' }
+        ] },
+        { key: 'match', label: 'คู่แนะนำ', options: [
+          { value: 'high', label: 'น่าจะตรง' },
+          { value: 'medium', label: 'ควรตรวจ' },
+          { value: 'none', label: 'ยังไม่มีคู่' }
+        ] }
+      ];
+    },
+    empty: 'ไม่พบรายการตามตัวกรอง'
   },
   {
     id: 'peak-statements', th: 'งบการเงิน', en: 'Financial statements', group: 'ข้อมูล PEAK', icon: BarChart3Icon,
@@ -1286,7 +1395,9 @@ function Workbench() {
   const storageIssueText = storageIssue === 'private-save' ? 'รีเฟรชแล้วข้อมูลจะหาย' :
     storageIssue === 'private-clear' ? 'ล้างข้อมูลเดิมไม่ได้ · ปิดแท็บนี้' :
       storageIssue === 'history' ? 'เบราว์เซอร์จำเวลาล่าสุดไม่ได้' : undefined;
-  const availableModules = PEAK_MODULES;
+  const availableModules = useMemo(() => PEAK_MODULES.filter((module) =>
+    module.id !== 'peak-reconcile' || Boolean(peakSnapshot?.bankReconciliation?.some((group) => group.items.length))
+  ), [peakSnapshot]);
   const availableGroups = PEAK_GROUPS;
   const [active, setActive] = useState(() => moduleFromLocation(availableModules));
   const [tableQuery, setTableQuery] = useState(() => parseTableRoute(window.location.hash).query);
@@ -1346,7 +1457,7 @@ function Workbench() {
 
   useEffect(() => {
     const onHistory = () => {
-      setActive(moduleFromLocation(PEAK_MODULES));
+      setActive(moduleFromLocation(availableModules));
       const route = parseTableRoute(window.location.hash);
       setTableQuery(route.query);
       setTableFilters(route.filters);
@@ -1357,10 +1468,11 @@ function Workbench() {
       window.removeEventListener('popstate', onHistory);
       window.removeEventListener('hashchange', onHistory);
     };
-  }, []);
+  }, [availableModules]);
 
   useEffect(() => {
-    if (availableModules.some((item) => item.id === active)) return;
+    const requested = window.location.hash.replace(/^#\/?/, '').split('?')[0] || 'dashboard';
+    if (availableModules.some((item) => item.id === active) && availableModules.some((item) => item.id === requested)) return;
     window.history.replaceState(null, '', '#dashboard');
     setActive('dashboard');
     setTableQuery('');

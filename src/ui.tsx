@@ -248,7 +248,12 @@ export function JsonImportDialog({ open, onImport, onClose }: {
         company: typeof snapshot.companyName === 'string' && snapshot.companyName.trim() ? snapshot.companyName : 'ไม่พบ',
         version: snapshot.schemaVersion === undefined ? 'ไม่พบ' : `v${String(snapshot.schemaVersion)}`,
         asOf, capturedAt,
-        sources: Array.isArray(snapshot.sources) ? `${snapshot.sources.length} แหล่ง` : 'ไม่พบ'
+        sources: Array.isArray(snapshot.sources) ? `${snapshot.sources.length} แหล่ง` : 'ไม่พบ',
+        bankItems: Array.isArray(snapshot.bankReconciliation) ? `${snapshot.bankReconciliation.reduce((sum, group) => {
+          if (!group || typeof group !== 'object') return sum;
+          const items = (group as {items?: unknown;}).items;
+          return sum + (Array.isArray(items) ? items.length : 0);
+        }, 0)} รายการ` : undefined
       };
     } catch {
       return undefined;
@@ -384,6 +389,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
           <div className="col-span-2"><dt className="text-slate-500">กิจการ</dt><dd className="mt-0.5 truncate font-medium text-slate-900" title={preview.company}>{preview.company}</dd></div>
           <div><dt className="text-slate-500">ข้อมูลถึง</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.asOf}</dd></div>
           <div><dt className="text-slate-500">แหล่งข้อมูล</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.sources}</dd></div>
+          {preview.bankItems ? <div><dt className="text-slate-500">รอกระทบยอด</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.bankItems}</dd></div> : null}
           <div className="col-span-2"><dt className="text-slate-500">ตรวจเมื่อ</dt><dd className="mt-0.5 font-medium text-slate-900">{preview.capturedAt} · {preview.version}</dd></div>
         </dl> : null}
         <details className="group mt-4 border-t border-slate-200 pt-3">

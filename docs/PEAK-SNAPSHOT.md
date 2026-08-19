@@ -29,3 +29,44 @@ These optional fields are rejected on cash and e-Wallet rows. A `complete` bank 
 The example is synthetic. Real balances, names, records, screenshots, credentials, tokens, and snapshots remain outside Git and CI.
 
 Legacy schema-v3 snapshots without account-level reconciliation fields remain valid. Siam ERP hides the account-level reconciliation columns and does not infer their values.
+
+## Unmatched bank-item evidence
+
+`bankReconciliation` is optional. It appears only when unmatched bank rows were visibly inspected. Each group belongs to one incomplete bank account and declares its coverage:
+
+- `full`: every visible unmatched row was captured. The row count must equal the account's `unmatchedCount`.
+- `sample`: only a bounded sample was captured. The interface labels it as partial and never treats it as the complete queue.
+
+A row requires a transaction date, description, direction, and positive amount. A candidate document is optional. Candidate confidence is accepted only with explicit matching signals: amount, date, reference, or party. High confidence requires at least three distinct signals. The application presents candidates for review; it never confirms a match or writes to PEAK.
+
+```json
+{
+  "bankReconciliation": [
+    {
+      "accountId": "bank-primary",
+      "coverage": "sample",
+      "items": [
+        {
+          "id": "bank-row-example-1",
+          "date": "2026-08-20",
+          "description": "รับโอนตัวอย่าง",
+          "direction": "inflow",
+          "amount": 1500,
+          "reference": "IV-EXAMPLE-001",
+          "candidate": {
+            "kind": "income",
+            "documentNo": "IV-EXAMPLE-001",
+            "party": "บริษัท ตัวอย่าง จำกัด",
+            "issueDate": "2026-08-20",
+            "amount": 1500,
+            "confidence": "high",
+            "signals": ["amount", "date", "reference"]
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The example is synthetic. Transaction descriptions, counterparties, references, and suggested documents are private financial data and must remain browser-local.

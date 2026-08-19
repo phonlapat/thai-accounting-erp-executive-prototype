@@ -1,4 +1,4 @@
-import type { PeakSnapshot } from './data';
+import type { PeakBankReconciliationItem, PeakSnapshot } from './data';
 
 export type PeakPeriod = '3' | '6' | 'all';
 
@@ -69,5 +69,48 @@ export function peakCashReconciliation(snapshot: PeakSnapshot) {
     unmatchedCount,
     unmatchedCountKnown,
     required: snapshot.cashChannels.reconciliationRequired || Math.abs(difference) > 0.02 || Boolean(finding) || incompleteAccounts.length > 0
+  };
+}
+
+export interface PeakBankReviewItem extends PeakBankReconciliationItem {
+  accountId: string;
+  accountName: string;
+  coverage: 'full' | 'sample';
+}
+
+export function peakBankReconciliationWorkspace(snapshot: PeakSnapshot) {
+  const evidence = snapshot.bankReconciliation ?? [];
+  const accounts = new Map(snapshot.financeAccounts.map((account) => [account.id, account]));
+  const priority = { high: 0, medium: 1, none: 2 } as const;
+  const items: PeakBankReviewItem[] = evidence.flatMap((group) => {
+    const account = accounts.get(group.accountId);
+    return group.items.map((item) => ({
+      ...item,
+      accountId: group.accountId,
+      accountName: account?.name ?? group.accountId,
+      coverage: group.coverage
+    }));
+  }).sort((left, right) => {
+    const leftConfidence = left.candidate?.confidence ?? 'none';
+    const rightConfidence = right.candidate?.confidence ?? 'none';
+    return priority[leftConfidence] - priority[rightConfidence] || right.date.localeCompare(left.date) || left.id.localeCompare(right.id);
+  });
+  const highConfidence = items.filter((item) => item.candidate?.confidence === 'high');
+  const mediumConfidence = items.filter((item) => item.candidate?.confidence === 'medium');
+  const withoutCandidate = items.filter((item) => !item.candidate);
+  const amountFor = (direction: PeakBankReviewItem['direction']) => items
+    .filter((item) => item.direction === direction)
+    .reduce((sum, item) => sum + item.amount, 0);
+  return {
+    evidence,
+    fullCoverageAccounts: evidence.filter((group) => group.coverage === 'full'),
+    highConfidence,
+    inflowAmount: amountFor('inflow'),
+    items,
+    mediumConfidence,
+    outflowAmount: amountFor('outflow'),
+    sampleCoverageAccounts: evidence.filter((group) => group.coverage === 'sample'),
+    suggestedItems: [...highConfidence, ...mediumConfidence],
+    withoutCandidate
   };
 }
