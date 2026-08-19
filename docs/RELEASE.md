@@ -4,10 +4,10 @@
 
 A public prototype release is acceptable only when all of the following pass:
 
-1. `npm run check` passes lint, regression tests, TypeScript validation, and production build.
+1. `npm run check` passes lint, regression tests, TypeScript validation, production build, and the generated-HTML security verifier.
 2. `npm audit --audit-level=high` reports no high or critical advisories.
 3. Desktop and mobile smoke tests cover the zero-data gate, JSON import, stale-data state, PEAK-only navigation, invalid import, exit removal, inactivity warning, and automatic lock.
-4. The generated site makes no application request to PEAK or another data service.
+4. The generated site carries the exact audited production CSP before every executable resource and makes no application request to PEAK or another data service.
 5. `git diff` and repository search contain no real PEAK snapshot, credential, token, bank account number, or customer data.
 6. GitHub Pages deploys from `main`, and its workflow completes successfully.
 
@@ -20,7 +20,7 @@ A public prototype release is acceptable only when all of the following pass:
 
 ## Deployment
 
-Merge a reviewed branch into `main`. GitHub Actions installs locked dependencies, runs `npm run check`, builds the static site, and deploys `dist` to GitHub Pages.
+Merge a reviewed branch into `main`. GitHub Actions installs locked dependencies, runs `npm run check`, verifies the generated security boundary, and deploys `dist` to GitHub Pages.
 
 ## Rollback
 

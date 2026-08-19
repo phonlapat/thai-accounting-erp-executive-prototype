@@ -44,7 +44,7 @@ This runs linting, regression tests, TypeScript checks, and the production build
 ## Security and release boundary
 
 - No PEAK snapshot, token, password, or private financial record belongs in Git, issues, CI artifacts, or screenshots.
-- The static site makes no application network requests; imported JSON is parsed locally and rebuilt from an audited field allowlist.
+- The static site makes no application network requests; its production CSP blocks them, and the build rejects a missing or weakened policy. Imported JSON is parsed locally and rebuilt from an audited field allowlist.
 - See [SECURITY.md](SECURITY.md) for the threat model and [docs/RELEASE.md](docs/RELEASE.md) for verification, rollback, and production blockers.
 
 Originally generated from a [Magic Patterns design](https://www.magicpatterns.com/c/2sy9ramnbdehhpmp42bjdk) and hardened as a PEAK-only executive-review interface.
