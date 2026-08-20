@@ -11,7 +11,7 @@ import type { AppData, PeakSnapshot, Tone } from './data';
 import {
   acctName, aging, ap, apList, ar, arList, bankSuggestion, bookValue, cash, cashForecast30, cashOf, contactName, depMonthly, depPerMonth, draftJournals,
   empName, invValue, ledger, lowStock, overdueList, pendingList, pl, projName, projectPL, series, stockOf, trialBalance,
-  DEMO_STORAGE_KEY, PEAK_SESSION_DEADLINE_KEY, PEAK_SESSION_KEY, peakSessionRemainingLabel, unmatchedList, useStore, vatReport, whtRows } from
+  peakSessionRemainingLabel, unmatchedList, useStore, vatReport, whtRows } from
 './store';
 import type { Actions } from './store';
 import { Button, Card, CardHead, ConfirmDialog, DataTable, JsonImportDialog, KpiStrip, Panels, cx } from './ui';
@@ -1871,33 +1871,6 @@ function Workbench() {
 
 }
 
-function AppContent() {
-  return <Workbench />;
-}
-
-interface ErrorBoundaryState {failed: boolean;}
-
-class ErrorBoundary extends React.Component<{children: React.ReactNode;}, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { failed: false };
-  static getDerivedStateFromError(): ErrorBoundaryState { return { failed: true }; }
-  componentDidCatch(error: Error, info: React.ErrorInfo) { console.error('Siam ERP render error', error, info); }
-  render() {
-    if (!this.state.failed) return this.props.children;
-    return <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-10">
-      <section className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-[0_18px_55px_-30px_rgba(15,23,42,0.35)] sm:p-8" aria-labelledby="app-error-title">
-        <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-700"><AlertCircleIcon className="h-5 w-5" /></span>
-        <h1 id="app-error-title" className="mt-4 text-xl font-semibold text-slate-950">เปิดหน้านี้ไม่สำเร็จ</h1>
-        <p className="mt-2 text-sm leading-6 text-slate-600">ลองโหลดหน้าใหม่ หรือคืนค่าข้อมูลหากไฟล์ที่บันทึกในเบราว์เซอร์เสียหาย</p>
-        <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-center">
-          <button type="button" onClick={() => window.location.reload()} className="h-11 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">โหลดใหม่</button>
-          <button type="button" onClick={() => { try { localStorage.removeItem(DEMO_STORAGE_KEY); sessionStorage.removeItem(PEAK_SESSION_KEY); sessionStorage.removeItem(PEAK_SESSION_DEADLINE_KEY); } catch { /* continue with reload */ } window.location.reload(); }} className="h-11 rounded-xl border border-rose-200 bg-white px-5 text-sm font-semibold text-rose-700 hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 focus-visible:ring-offset-2">ล้างข้อมูลในแท็บ</button>
-        </div>
-        <p className="mt-3 text-[12px] text-slate-500">การล้างข้อมูลจะลบไฟล์ข้อมูล PEAK ออกจากแท็บนี้</p>
-      </section>
-    </main>;
-  }
-}
-
 export function App() {
-  return <ErrorBoundary><AppContent /></ErrorBoundary>;
+  return <Workbench />;
 }
