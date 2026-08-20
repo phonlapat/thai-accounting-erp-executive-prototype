@@ -183,7 +183,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
   };
   return createPortal(
     <div className="erp-fade-in fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" className="erp-dialog-in w-full max-w-md rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] sm:p-6">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" className="erp-dialog-in max-h-[calc(100dvh-1.5rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] [scrollbar-gutter:stable] sm:max-h-[calc(100dvh-3rem)] sm:p-6">
         <div className="flex items-start gap-3">
           <span className={cx('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', tone === 'danger' ? 'bg-rose-50 text-rose-700' : 'bg-blue-50 text-blue-700')}>
             <AlertTriangleIcon className="h-5 w-5" />
@@ -357,7 +357,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   };
   return createPortal(
     <div className="erp-fade-in fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/55 p-3 sm:items-center sm:p-6" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="json-import-title" aria-describedby="json-import-description" aria-busy={reading || committing} className="erp-dialog-in w-full max-w-xl rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] sm:p-6">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="json-import-title" aria-describedby="json-import-description" aria-busy={reading || committing} className="erp-dialog-in max-h-[calc(100dvh-1.5rem)] w-full max-w-xl overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-[0_24px_70px_-24px_rgba(15,23,42,0.55)] [scrollbar-gutter:stable] sm:max-h-[calc(100dvh-3rem)] sm:p-6">
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
