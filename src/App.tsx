@@ -1670,7 +1670,7 @@ function Workbench() {
               </div>
               <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-5 border-t border-slate-800 py-2 text-[12px] text-slate-400">
                 <span>เว็บล่าสุด <time className="ml-1 tabular-nums text-slate-200" dateTime={__BUILD_AT__}>{peakStamp(__BUILD_AT__)}</time></span>
-                {lastPeakMeta ? <button type="button" onClick={() => setConfirmClearHistory(true)} className="inline-flex min-h-10 items-center font-medium underline decoration-slate-700 underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">ล้างประวัติ</button> : null}
+                {lastPeakMeta ? <button type="button" onClick={() => setConfirmClearHistory(true)} className="inline-flex min-h-11 min-w-11 items-center font-medium underline decoration-slate-700 underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">ล้างประวัติ</button> : null}
               </div>
             </section>
           </div>
@@ -1732,7 +1732,7 @@ function Workbench() {
             type="button"
             onClick={() => setCollapsed(!collapsed)}
             aria-label={collapsed ? 'ขยายเมนู' : 'ย่อเมนู'}
-            className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg px-2 py-2 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">
 
             {collapsed ? <ChevronsRightIcon className="h-4 w-4" /> : <ChevronsLeftIcon className="h-4 w-4" />}
             {!collapsed ? 'ย่อเมนู' : null}
