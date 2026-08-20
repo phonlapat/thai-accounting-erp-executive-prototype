@@ -49,8 +49,8 @@ export function Button({
       aria-label={ariaLabel}
       title={title}
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'min-h-11 px-3 py-1 text-[13px] sm:min-h-9 sm:px-2.5 sm:text-[12px]' : 'min-h-11 px-3 py-1.5 text-[14px] sm:min-h-10 sm:text-[13px]',
+        'inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
+        size === 'sm' ? 'px-3 py-1 text-[13px] sm:px-2.5 sm:text-[12px]' : 'px-3 py-1.5 text-[14px] sm:text-[13px]',
         variant === 'primary' && 'border-blue-700 bg-blue-700 text-white hover:bg-blue-800',
         variant === 'ghost' && 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50',
         variant === 'danger' && 'border-rose-200 bg-white text-rose-700 hover:bg-rose-50',
@@ -466,7 +466,7 @@ function PanelChoiceControl({ choice }: {choice: PanelChoice;}) {
             aria-pressed={selected}
             onClick={() => choice.onChange(option.value)}
             className={cx(
-              'min-h-11 rounded-md px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1 sm:min-h-8',
+              'min-h-11 min-w-11 rounded-md px-2.5 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-1',
               selected ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-600 hover:bg-white/70 hover:text-slate-950'
             )}>
             {option.label}
@@ -589,15 +589,15 @@ export function Panels({ items }: {items: PanelSpec[];}) {
   if (!items.length) return null;
   const dashboardLayout = items.some((item) => item.dashboardArea);
   return (
-    <div className={cx('grid gap-4', dashboardLayout ? 'min-[900px]:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]' : 'min-[900px]:grid-cols-3')}>
+    <div className={cx('grid gap-4', dashboardLayout ? 'min-[1180px]:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]' : 'min-[1180px]:grid-cols-3')}>
       {items.map((p) =>
       <Card key={p.title} className={cx(
         'flex min-h-0 flex-col',
-        p.wide && 'min-[900px]:col-span-2',
-        p.full && 'min-[900px]:col-span-3',
-        p.dashboardArea === 'performance' && 'min-[900px]:col-start-1 min-[900px]:row-start-1 min-[900px]:row-span-2',
-        p.dashboardArea === 'urgent' && 'min-[900px]:col-start-2 min-[900px]:row-start-1',
-        p.dashboardArea === 'approvals' && 'min-[900px]:col-start-2 min-[900px]:row-start-2'
+        p.wide && 'min-[1180px]:col-span-2',
+        p.full && 'min-[1180px]:col-span-3',
+        p.dashboardArea === 'performance' && 'min-[1180px]:col-start-1 min-[1180px]:row-start-1 min-[1180px]:row-span-2',
+        p.dashboardArea === 'urgent' && 'min-[1180px]:col-start-2 min-[1180px]:row-start-1',
+        p.dashboardArea === 'approvals' && 'min-[1180px]:col-start-2 min-[1180px]:row-start-2'
       )}>
           <CardHead
           title={p.title}
@@ -619,10 +619,10 @@ export function Panels({ items }: {items: PanelSpec[];}) {
         null}
           {p.lines?.length ? <>
             <ul className="divide-y divide-slate-200">
-              {p.lines.map((line, index) => <PanelLineItem key={line.left + (line.sub ?? '')} line={line} className={p.collapseAfter && index >= p.collapseAfter ? '!hidden min-[900px]:!flex' : undefined} />)}
+              {p.lines.map((line, index) => <PanelLineItem key={line.left + (line.sub ?? '')} line={line} className={p.collapseAfter && index >= p.collapseAfter ? '!hidden min-[1180px]:!flex' : undefined} />)}
             </ul>
             {p.collapseAfter && p.lines.length > p.collapseAfter ?
-              <details className="group border-t border-slate-200 min-[900px]:hidden">
+              <details className="group border-t border-slate-200 min-[1180px]:hidden">
                 <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center px-4 text-[12px] font-medium text-blue-700 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden">
                   ดูอีก {p.lines.length - p.collapseAfter} รายการ
                 </summary>
@@ -761,7 +761,7 @@ export function DataTable({
             value={q}
             onChange={(e) => changeQuery(e.target.value)}
             placeholder="ค้นหา…"
-            className="h-11 w-full rounded-lg border border-slate-300 pl-8 pr-2.5 text-base text-slate-900 placeholder:text-slate-500 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 sm:h-10 sm:text-[13px]" />
+            className="h-11 w-full rounded-lg border border-slate-300 pl-8 pr-2.5 text-base text-slate-900 placeholder:text-slate-500 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 sm:text-[13px]" />
 
         </label>
         {filters.map((f) =>
@@ -770,7 +770,7 @@ export function DataTable({
             <select
             value={sel[f.key] ?? ''}
             onChange={(e) => changeFilter(f.key, e.target.value)}
-            className="h-11 min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 text-base text-slate-700 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 sm:h-10 sm:text-[12.5px]">
+            className="h-11 min-w-0 rounded-lg border border-slate-300 bg-white px-2.5 text-base text-slate-700 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100 sm:text-[12.5px]">
 
               <option value="">{f.label}ทั้งหมด</option>
               {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -778,7 +778,7 @@ export function DataTable({
           </label>
         )}
         {filtering ?
-        <button type="button" onClick={clearView} className="min-h-10 rounded-lg px-2.5 text-[12px] font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+        <button type="button" onClick={clearView} className="min-h-11 min-w-11 rounded-lg px-2.5 text-[12px] font-medium text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
             ล้าง
           </button> : null}
         <span className="ml-auto whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-[12px] font-medium text-slate-600" aria-live="polite">{view.length} รายการ</span>
@@ -822,7 +822,7 @@ export function DataTable({
                   <button
                   type="button"
                   onClick={() => setSort((s) => s?.key === c.key ? { key: c.key, dir: s.dir === 1 ? -1 : 1 } : { key: c.key, dir: 1 })}
-                  className="inline-flex min-h-8 items-center gap-1 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
+                  className="inline-flex min-h-11 min-w-11 items-center gap-1 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">
 
                     {c.header}
                     <ArrowUpDownIcon className={cx('h-3 w-3', sort?.key === c.key ? 'text-blue-700' : 'text-slate-300')} />
@@ -872,9 +872,9 @@ export function DataTable({
       <nav className="flex items-center justify-between gap-3 border-t border-slate-200 px-3 py-2.5" aria-label="เปลี่ยนหน้ารายการ">
         <span className="text-[12px] tabular-nums text-slate-500">{pageStart + 1}–{Math.min(pageStart + pageSize, view.length)} จาก {view.length}</span>
         <div className="flex items-center gap-2">
-          <Button icon={ChevronLeftIcon} size="sm" className="min-w-11 px-0 sm:min-w-9" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} ariaLabel="หน้าก่อนหน้า" />
+          <Button icon={ChevronLeftIcon} size="sm" className="px-0" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))} ariaLabel="หน้าก่อนหน้า" />
           <span className="min-w-10 text-center text-[12px] font-medium tabular-nums text-slate-700">{safePage}/{pageCount}</span>
-          <Button icon={ChevronRightIcon} size="sm" className="min-w-11 px-0 sm:min-w-9" disabled={safePage === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))} ariaLabel="หน้าถัดไป" />
+          <Button icon={ChevronRightIcon} size="sm" className="px-0" disabled={safePage === pageCount} onClick={() => setPage((current) => Math.min(pageCount, current + 1))} ariaLabel="หน้าถัดไป" />
         </div>
       </nav> : null}
     </div>);
