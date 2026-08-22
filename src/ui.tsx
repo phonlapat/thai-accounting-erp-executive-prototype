@@ -342,7 +342,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   const commit = () => {
     if (reading || committingRef.current) return;
     if (!validation.snapshot) {
-      setError(validation.error ?? 'เลือกไฟล์ PEAK');
+      setError(validation.error ?? 'เลือก snapshot PEAK');
       return;
     }
     committingRef.current = true;
@@ -361,13 +361,13 @@ export function JsonImportDialog({ open, onImport, onClose }: {
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
-            <h2 id="json-import-title" className="text-[18px] font-semibold tracking-[-0.02em] text-slate-950">เปิดข้อมูล PEAK</h2>
-            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">อ่านอย่างเดียว · ไม่อัปโหลด</p>
+            <h2 id="json-import-title" className="text-[18px] font-semibold tracking-[-0.02em] text-slate-950">รีเฟรชข้อมูล PEAK</h2>
+            <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">อ่านอย่างเดียว · อยู่เฉพาะแท็บนี้</p>
           </div>
           <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"><XIcon className="h-4 w-4" /></button>
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={reading ? LoaderCircleIcon : UploadIcon} disabled={reading || committing} className={reading ? '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none' : undefined}>{reading ? 'กำลังอ่าน…' : 'เลือกไฟล์'}</Button>
+          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={reading ? LoaderCircleIcon : UploadIcon} disabled={reading || committing} className={reading ? '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none' : undefined}>{reading ? 'กำลังอ่าน…' : 'เลือก snapshot'}</Button>
           <span className="min-w-0 truncate text-[12px] text-slate-500" title={fileName || undefined}>{fileName || 'JSON v3 · สูงสุด 1 MB'}</span>
           <input
             ref={fileRef} type="file" accept="application/json,.json" className="sr-only"
