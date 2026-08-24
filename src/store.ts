@@ -296,9 +296,34 @@ interface LoadResult {data: AppData;recoveredStorage: boolean;peakDeadline?: num
 
 interface SessionPeakResult {snapshot?: PeakSnapshot;deadline?: number;}
 
-function clearPrivateSessionStorage() {
-  sessionStorage.removeItem(PEAK_SESSION_KEY);
-  sessionStorage.removeItem(PEAK_SESSION_DEADLINE_KEY);
+type PrivateSessionStorage = Pick<Storage, 'getItem' | 'removeItem'>;
+
+export function clearPrivateSessionStorage(storage?: PrivateSessionStorage): boolean {
+  let target: PrivateSessionStorage;
+  try {
+    target = storage ?? sessionStorage;
+  } catch {
+    return false;
+  }
+  const keys = [PEAK_SESSION_KEY, PEAK_SESSION_DEADLINE_KEY] as const;
+  let cleared = true;
+
+  keys.forEach((key) => {
+    try {
+      target.removeItem(key);
+    } catch {
+      /* Verification below is authoritative; still attempt the other key. */
+    }
+  });
+  keys.forEach((key) => {
+    try {
+      if (target.getItem(key) !== null) cleared = false;
+    } catch {
+      cleared = false;
+    }
+  });
+
+  return cleared;
 }
 
 function readSessionPeak(now = Date.now()): SessionPeakResult {
@@ -371,15 +396,18 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
   const [peakSessionEnded, setPeakSessionEnded] = useState<'idle' | undefined>();
   const toastTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
-  const updatePeakDeadline = useCallback((deadline: number | undefined) => {
+  const updatePeakDeadline = useCallback((deadline: number | undefined, persist = true) => {
     peakDeadlineRef.current = deadline;
     setPeakDeadline(deadline);
     setPeakClock(Date.now());
+    if (!persist) return true;
     try {
       if (deadline) sessionStorage.setItem(PEAK_SESSION_DEADLINE_KEY, String(deadline));
       else sessionStorage.removeItem(PEAK_SESSION_DEADLINE_KEY);
+      return true;
     } catch {
       setStorageIssue(deadline ? 'private-save' : 'private-clear');
+      return false;
     }
   }, []);
 
@@ -399,7 +427,7 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
     }
     try {
       if (data.peakSnapshot) sessionStorage.setItem(PEAK_SESSION_KEY, JSON.stringify(data.peakSnapshot));
-      else sessionStorage.removeItem(PEAK_SESSION_KEY);
+      else if (!clearPrivateSessionStorage()) privateIssue = 'private-clear';
     } catch {
       privateIssue = data.peakSnapshot ? 'private-save' : 'private-clear';
     }
@@ -742,7 +770,7 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
       importPeakSnapshot: (value: unknown) => {
         const snapshot = sanitizePeakSnapshot(value);
         if (!snapshot) {
-          notify('ไฟล์ PEAK ไม่ถูกต้องหรือเป็นคนละเวอร์ชัน', 'bad');
+          notify('ไฟล์สำหรับ Siam ERP ไม่ถูกต้องหรือเป็นคนละเวอร์ชัน', 'bad');
           return false;
         }
         setPeakSessionEnded(undefined);
@@ -760,19 +788,31 @@ export function useStore(actor = 'ผู้ใช้เดโม') {
           notify('ไม่มีข้อมูล PEAK ในแท็บนี้', 'bad');
           return d;
         }
-        try { clearPrivateSessionStorage(); } catch { /* unavailable storage */ }
-        updatePeakDeadline(undefined);
+        const cleared = clearPrivateSessionStorage();
+        updatePeakDeadline(undefined, false);
         setPeakSessionEnded(undefined);
-        notify('ลบข้อมูล PEAK จากแท็บแล้ว');
+        if (cleared) {
+          setStorageIssue((current) => current === 'private-clear' ? undefined : current);
+          notify('ลบข้อมูล PEAK จากแท็บแล้ว');
+        } else {
+          setStorageIssue('private-clear');
+          notify('ลบข้อมูลจากแท็บไม่สำเร็จ กรุณาปิดแท็บ', 'bad');
+        }
         return { ...d, peakSnapshot: undefined };
       }),
 
       lockPeakSnapshot: () =>
       mut((d) => {
         if (!d.peakSnapshot) return d;
-        try { clearPrivateSessionStorage(); } catch { /* unavailable storage */ }
-        updatePeakDeadline(undefined);
+        const cleared = clearPrivateSessionStorage();
+        updatePeakDeadline(undefined, false);
         setPeakSessionEnded('idle');
+        if (cleared) {
+          setStorageIssue((current) => current === 'private-clear' ? undefined : current);
+        } else {
+          setStorageIssue('private-clear');
+          notify('ล็อกแล้วแต่ลบข้อมูลจากแท็บไม่สำเร็จ กรุณาปิดแท็บ', 'bad');
+        }
         return { ...d, peakSnapshot: undefined };
       }),
 

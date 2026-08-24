@@ -156,7 +156,7 @@ function peakDashboardPanels(
       left: item.left, sub: item.sub, right: item.right, tone: item.tone,
       actions: [{ label: item.actionLabel, ariaLabel: `${item.actionLabel} ${item.left}`, run: () => navigate(item.destination, '', item.filters), variant: 'ghost' }]
     })),
-    empty: 'ทุกเรื่องสำคัญเรียบร้อย'
+    empty: 'ไม่พบเรื่องเร่งด่วนจากข้อมูลที่นำเข้า'
   },
   {
     title: 'ฐานะการเงิน', sub: `งบ ณ ${asOf}`, dashboardArea: 'approvals',
@@ -1478,16 +1478,54 @@ function readPeakPeriod(): PeakPeriod {
   }
 }
 
-function PeakHandoffWorkspace({
+function SkipToMainButton({ disabled = false }: {disabled?: boolean;}) {
+  return <button type="button" tabIndex={disabled ? -1 : undefined} aria-hidden={disabled || undefined} onClick={() => document.getElementById('main-content')?.focus()} className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg focus:translate-y-0">ข้ามไปเนื้อหา</button>;
+}
+
+function PeakShellHeader() {
+  return (
+    <header className="border-b border-slate-200 bg-white">
+      <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center gap-3 px-4 sm:px-6">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-[14px] font-bold text-white shadow-[0_8px_20px_-12px_rgba(37,99,235,0.9)]">ส</span>
+        <div className="min-w-0">
+          <p className="truncate text-[13px] font-semibold text-slate-950">Siam ERP</p>
+          <p className="truncate text-[11.5px] text-slate-500">ภาพรวมผู้บริหาร</p>
+        </div>
+        <span className="ml-auto inline-flex min-h-9 items-center gap-1.5 rounded-full bg-slate-100 px-3 text-[12px] font-medium text-slate-700">
+          <LockKeyholeIcon className="h-3.5 w-3.5" aria-hidden="true" />ยังไม่มีข้อมูล
+        </span>
+      </div>
+    </header>
+  );
+}
+
+function PeakShellFooter({ actionLabel, onAction }: {actionLabel?: string;onAction?: () => void;}) {
+  return (
+    <footer className="border-t border-slate-200 bg-white px-4 py-2 text-[12px] text-slate-500 sm:px-6">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+        <span>อัปเดตตัวระบบ <time className="tabular-nums" dateTime={__BUILD_AT__}>{peakStamp(__BUILD_AT__)}</time></span>
+        {actionLabel && onAction ? <button type="button" onClick={onAction} className="inline-flex min-h-11 items-center font-medium underline decoration-slate-300 underline-offset-4 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">{actionLabel}</button> : null}
+      </div>
+    </footer>
+  );
+}
+
+function PeakAccessGate({
   lastPeakMeta,
   storageIssueText,
+  sessionEnded,
+  focusVersion,
+  onOpenPeak,
   onImport,
-  onBack
+  onClearHistory
 }: {
   lastPeakMeta?: PeakSnapshotMeta;
   storageIssueText?: string;
+  sessionEnded: boolean;
+  focusVersion: number;
+  onOpenPeak: () => void;
   onImport: () => void;
-  onBack: () => void;
+  onClearHistory: () => void;
 }) {
   const freshness = lastPeakMeta ? peakSnapshotFreshness(lastPeakMeta.asOf) : undefined;
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -1495,55 +1533,110 @@ function PeakHandoffWorkspace({
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => titleRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
+  }, [focusVersion]);
+
+  return (
+    <div className="flex min-h-screen w-full flex-col bg-slate-50 text-slate-900">
+      <SkipToMainButton />
+      <PeakShellHeader />
+      <main id="main-content" tabIndex={-1} className="flex min-w-0 flex-1 items-center px-4 py-6 outline-none sm:px-6 sm:py-10">
+        <section className="mx-auto w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-[0_24px_70px_-48px_rgba(15,23,42,0.58)]" aria-labelledby="peak-gate-title">
+          <div className="grid lg:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
+            <section className="order-2 flex min-h-[230px] flex-col bg-slate-950 px-6 py-7 text-white sm:px-8 sm:py-9 lg:order-1 lg:min-h-[400px] lg:px-10 lg:py-10" aria-labelledby="peak-last-update-title">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <HistoryIcon className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                <h2 id="peak-last-update-title" className="text-[12px] font-medium text-slate-300">ตรวจครั้งก่อน</h2>
+                {freshness ? <span className={cx('rounded-md px-2 py-1 text-[11px] font-semibold', freshness.status === 'fresh' ? 'bg-emerald-400/10 text-emerald-300' : freshness.status === 'aging' ? 'bg-amber-400/10 text-amber-300' : 'bg-rose-400/10 text-rose-300')}>{freshness.label}</span> : null}
+              </div>
+              {lastPeakMeta ? <>
+                <p className="mt-5 text-[clamp(2rem,5vw,3.5rem)] font-semibold leading-none tracking-[-0.035em]">ข้อมูลถึง {dateTH(lastPeakMeta.asOf.slice(0, 10))}</p>
+                <p className="mt-4 text-[13px] tabular-nums text-slate-400">ตรวจ <time dateTime={lastPeakMeta.capturedAt}>{peakStamp(lastPeakMeta.capturedAt)}</time></p>
+              </> : <>
+                <p className="mt-5 text-[clamp(2rem,5vw,3.5rem)] font-semibold leading-none tracking-[-0.035em]">ยังไม่มีประวัติ</p>
+                <p className="mt-4 text-[13px] text-slate-400">จะแสดงหลังตรวจครั้งแรก</p>
+              </>}
+              <p className="mt-auto flex items-center gap-2 border-t border-slate-800 pt-5 text-[12px] text-slate-400"><LockKeyholeIcon className="h-4 w-4" aria-hidden="true" />ตัวเลขยังล็อก</p>
+            </section>
+
+            <section className="order-1 flex flex-col justify-center px-6 py-8 sm:px-8 sm:py-10 lg:order-2 lg:min-h-[400px] lg:px-10" aria-describedby="peak-gate-description">
+              <h1 ref={titleRef} tabIndex={-1} id="peak-gate-title" className="text-balance text-[clamp(2rem,5vw,3rem)] font-semibold leading-[1.08] tracking-[-0.035em] text-slate-950 outline-none">เปิดข้อมูล PEAK</h1>
+              <p id="peak-gate-description" className="mt-3 max-w-[38ch] text-[14px] leading-6 text-slate-600">เปิด PEAK แล้วกลับมาเลือกไฟล์สำหรับ Siam ERP</p>
+              <div className="mt-7 grid gap-2 sm:grid-cols-2">
+                <a href={PEAK_HOME_URL} target="_blank" rel="noreferrer" onClick={onOpenPeak} aria-label="เปิด PEAK ในแท็บใหม่" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">เปิด PEAK</a>
+                <button type="button" onClick={onImport} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">เลือกไฟล์</button>
+              </div>
+              {sessionEnded ? <p className="mt-4 text-[12px] text-amber-800" role="status">เซสชันเดิมหมดเวลา · วันที่ล่าสุดยังอยู่</p> : null}
+              {storageIssueText ? <div className="mt-4 flex items-start gap-2 text-[12px] leading-5 text-rose-700" role="alert">
+                <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{storageIssueText}</span>
+              </div> : <p className="mt-5 flex items-center gap-2 text-[12px] text-slate-500"><ShieldCheckIcon className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />ข้อมูลอยู่ในแท็บนี้ · ไม่เก็บตัวเลขถาวร</p>}
+            </section>
+          </div>
+        </section>
+      </main>
+      <PeakShellFooter actionLabel={lastPeakMeta ? 'ล้างเวลาล่าสุด' : undefined} onAction={lastPeakMeta ? onClearHistory : undefined} />
+    </div>
+  );
+}
+
+function PeakHandoffWorkspace({
+  lastPeakMeta,
+  storageIssueText,
+  onOpenPeak,
+  onImport,
+  onBack
+}: {
+  lastPeakMeta?: PeakSnapshotMeta;
+  storageIssueText?: string;
+  onOpenPeak: () => void;
+  onImport: () => void;
+  onBack: () => void;
+}) {
+  const freshness = lastPeakMeta ? peakSnapshotFreshness(lastPeakMeta.asOf) : undefined;
+  const titleRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    let frame = 0;
+    const focusNextStep = () => {
+      if (document.visibilityState !== 'visible') return;
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => titleRef.current?.focus());
+    };
+    focusNextStep();
+    document.addEventListener('visibilitychange', focusNextStep);
+    return () => {
+      document.removeEventListener('visibilitychange', focusNextStep);
+      window.cancelAnimationFrame(frame);
+    };
   }, []);
 
   return (
     <div className="flex min-h-screen w-full flex-col bg-slate-50 text-slate-900">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center gap-3 px-4 sm:px-6">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-[14px] font-bold text-white shadow-[0_8px_20px_-12px_rgba(37,99,235,0.9)]">ส</span>
-          <div className="min-w-0">
-            <p className="truncate text-[13px] font-semibold text-slate-950">Siam ERP</p>
-            <p className="truncate text-[11.5px] text-slate-500">ภาพรวมผู้บริหาร</p>
-          </div>
-          <span className="ml-auto inline-flex min-h-9 items-center gap-1.5 rounded-full bg-slate-100 px-3 text-[12px] font-medium text-slate-700">
-            <LockKeyholeIcon className="h-3.5 w-3.5" />ยังไม่มีข้อมูล
-          </span>
-        </div>
-      </header>
+      <SkipToMainButton />
+      <PeakShellHeader />
 
-      <main className="flex min-w-0 flex-1 items-center px-4 py-6 sm:px-6 sm:py-10">
+      <main id="main-content" tabIndex={-1} className="flex min-w-0 flex-1 items-center px-4 py-6 outline-none sm:px-6 sm:py-10">
         <div className="mx-auto w-full max-w-5xl space-y-4 sm:space-y-5">
-          <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-[13px] text-blue-950" role="status" aria-live="polite">
-            <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" aria-hidden="true" />
-            <span><strong>PEAK เปิดในแท็บใหม่</strong> · ยังไม่ได้เชื่อมข้อมูล</span>
-          </div>
-
-          <ol className="grid grid-cols-3 divide-x overflow-hidden rounded-xl border border-slate-200 bg-white" aria-label="ขั้นตอนนำข้อมูล PEAK มาแสดง">
-            <li className="flex min-h-[86px] flex-col items-start justify-center gap-1.5 px-3 py-3 sm:min-h-[72px] sm:flex-row sm:items-center sm:gap-3 sm:px-4">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700 sm:h-8 sm:w-8"><CheckCircle2Icon className="h-4 w-4" /></span>
-              <div className="min-w-0"><span className="block text-[10px] font-medium text-slate-500 sm:text-[11px]">1 · เปิดแล้ว</span><strong className="mt-0.5 block text-[12px] font-semibold text-slate-900 sm:text-[13px]">เปิด PEAK</strong></div>
+          <ol className="grid grid-cols-2 divide-x overflow-hidden rounded-xl border border-slate-200 bg-white" aria-label="ขั้นตอนนำข้อมูล PEAK มาแสดง">
+            <li className="flex min-h-[72px] items-center gap-3 px-4 py-3 sm:px-5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-700"><CheckCircle2Icon className="h-4 w-4" aria-hidden="true" /></span>
+              <div className="min-w-0"><span className="block text-[11px] font-medium text-slate-500">เสร็จแล้ว</span><strong className="mt-0.5 block text-[13px] font-semibold text-slate-900">เปิด PEAK</strong></div>
             </li>
-            <li className="flex min-h-[86px] flex-col items-start justify-center gap-1.5 bg-blue-50/50 px-3 py-3 sm:min-h-[72px] sm:flex-row sm:items-center sm:gap-3 sm:px-4" aria-current="step">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-700 text-[12px] font-semibold text-white sm:h-8 sm:w-8 sm:text-[13px]">2</span>
-              <div className="min-w-0"><span className="block text-[10px] font-medium text-blue-700 sm:text-[11px]">ตอนนี้</span><strong className="mt-0.5 block text-[12px] font-semibold leading-4 text-slate-950 sm:text-[13px]">นำข้อมูลมาแสดง</strong></div>
-            </li>
-            <li className="flex min-h-[86px] flex-col items-start justify-center gap-1.5 px-3 py-3 text-slate-500 sm:min-h-[72px] sm:flex-row sm:items-center sm:gap-3 sm:px-4">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 sm:h-8 sm:w-8"><LockKeyholeIcon className="h-4 w-4" /></span>
-              <div className="min-w-0"><span className="block text-[10px] font-medium sm:text-[11px]">3 · รอข้อมูล</span><strong className="mt-0.5 block text-[12px] font-semibold text-slate-600 sm:text-[13px]">ดูภาพรวม</strong></div>
+            <li className="flex min-h-[72px] items-center gap-3 bg-blue-50/50 px-4 py-3 sm:px-5" aria-current="step">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-700 text-[13px] font-semibold text-white">2</span>
+              <div className="min-w-0"><span className="block text-[11px] font-medium text-blue-700">ตอนนี้</span><strong className="mt-0.5 block text-[13px] font-semibold leading-4 text-slate-950">เลือกไฟล์</strong></div>
             </li>
           </ol>
 
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_-42px_rgba(15,23,42,0.48)]">
             <div className="grid lg:grid-cols-[minmax(0,1.25fr)_minmax(300px,0.75fr)]">
               <div className="flex flex-col justify-center px-5 py-7 sm:px-8 sm:py-9 lg:min-h-[320px] lg:px-10">
-                <h1 ref={titleRef} tabIndex={-1} className="text-[clamp(1.75rem,4vw,2.6rem)] font-semibold leading-tight tracking-[-0.035em] text-slate-950 focus:outline-none">นำข้อมูล PEAK มาแสดง</h1>
-                <p className="mt-3 text-[14px] leading-6 text-slate-600">เลือกไฟล์ที่เตรียมไว้</p>
+                <h1 ref={titleRef} tabIndex={-1} className="text-[clamp(1.75rem,4vw,2.6rem)] font-semibold leading-tight tracking-[-0.035em] text-slate-950 focus:outline-none">เลือกไฟล์สำหรับ Siam ERP</h1>
                 <div className="mt-6 flex flex-col gap-2 sm:flex-row">
-                  <Button onClick={onImport} variant="primary" icon={UploadIcon} className="w-full sm:w-auto">นำข้อมูลมาแสดง</Button>
-                  <a href={PEAK_HOME_URL} target="_blank" rel="noreferrer" className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-[13px] font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 sm:w-auto">เปิด PEAK</a>
+                  <Button onClick={onImport} variant="primary" icon={UploadIcon} className="w-full sm:w-auto">เลือกไฟล์</Button>
+                  <a href={PEAK_HOME_URL} target="_blank" rel="noreferrer" onClick={onOpenPeak} aria-label="เปิด PEAK อีกครั้งในแท็บใหม่" className="inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-[13px] font-medium text-slate-800 hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 sm:w-auto">เปิด PEAK อีกครั้ง</a>
                 </div>
-                <p className="mt-5 flex items-center gap-2 text-[12px] text-slate-500"><ShieldCheckIcon className="h-4 w-4 shrink-0 text-emerald-600" />อ่านอย่างเดียว · ไม่เก็บตัวเลขถาวร</p>
+                <p className="mt-5 flex items-center gap-2 text-[12px] text-slate-500"><ShieldCheckIcon className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />อ่านอย่างเดียว · ไม่เก็บตัวเลขถาวร</p>
               </div>
 
               <aside className="border-t border-slate-200 bg-slate-50 px-5 py-6 sm:px-8 lg:border-l lg:border-t-0 lg:px-7 lg:py-8" aria-label="ข้อมูลที่ตรวจครั้งก่อน">
@@ -1554,7 +1647,7 @@ function PeakHandoffWorkspace({
                 <dl className="mt-4 divide-y divide-slate-200 border-y border-slate-200 text-[13px]">
                   <div className="flex items-center justify-between gap-4 py-3"><dt className="text-slate-500">ข้อมูลถึง</dt><dd className="font-semibold text-slate-950">{lastPeakMeta ? dateTH(lastPeakMeta.asOf.slice(0, 10)) : 'ยังไม่มี'}</dd></div>
                   <div className="flex items-center justify-between gap-4 py-3"><dt className="text-slate-500">ตรวจล่าสุด</dt><dd className="text-right font-medium tabular-nums text-slate-950">{lastPeakMeta ? peakStamp(lastPeakMeta.capturedAt) : '—'}</dd></div>
-                  <div className="flex items-center justify-between gap-4 py-3"><dt className="text-slate-500">ในแท็บนี้</dt><dd className="inline-flex items-center gap-1.5 font-medium text-slate-700"><LockKeyholeIcon className="h-4 w-4" />ล็อก</dd></div>
+                  <div className="flex items-center justify-between gap-4 py-3"><dt className="text-slate-500">ในแท็บนี้</dt><dd className="inline-flex items-center gap-1.5 font-medium text-slate-700"><LockKeyholeIcon className="h-4 w-4" aria-hidden="true" />ล็อก</dd></div>
                 </dl>
                 {storageIssueText ? <p className="mt-4 text-[12px] leading-5 text-rose-700" role="alert">{storageIssueText}</p> : null}
               </aside>
@@ -1563,12 +1656,7 @@ function PeakHandoffWorkspace({
         </div>
       </main>
 
-      <footer className="border-t border-slate-200 bg-white px-4 py-2 text-[12px] text-slate-500 sm:px-6">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
-          <span>เว็บล่าสุด <time className="tabular-nums" dateTime={__BUILD_AT__}>{peakStamp(__BUILD_AT__)}</time></span>
-          <button type="button" onClick={onBack} className="inline-flex min-h-11 items-center font-medium underline decoration-slate-300 underline-offset-4 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600">กลับหน้าเริ่มต้น</button>
-        </div>
-      </footer>
+      <PeakShellFooter actionLabel="กลับหน้าเริ่มต้น" onAction={onBack} />
     </div>
   );
 }
@@ -1579,7 +1667,6 @@ function Workbench() {
   const peakSnapshot = data.peakSnapshot;
   const peakMode = Boolean(peakSnapshot);
   const peakFreshness = peakSnapshot ? peakSnapshotFreshness(peakSnapshot.asOf) : undefined;
-  const lastPeakFreshness = lastPeakMeta ? peakSnapshotFreshness(lastPeakMeta.asOf) : undefined;
   const storageIssueText = storageIssue === 'private-save' ? 'รีเฟรชแล้วข้อมูลจะหาย' :
     storageIssue === 'private-clear' ? 'ล้างข้อมูลเดิมไม่ได้ · ปิดแท็บนี้' :
       storageIssue === 'history' ? 'เบราว์เซอร์จำเวลาล่าสุดไม่ได้' : undefined;
@@ -1599,6 +1686,7 @@ function Workbench() {
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [peakImportOpen, setPeakImportOpen] = useState(false);
   const [peakHandoffStarted, setPeakHandoffStarted] = useState(() => readPeakHandoff());
+  const [gateFocusVersion, setGateFocusVersion] = useState(0);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const restoreMenuFocusRef = useRef(false);
   const closeMenuRef = useRef<HTMLButtonElement>(null);
@@ -1651,6 +1739,10 @@ function Workbench() {
 
   useEffect(() => {
     const onHistory = () => {
+      if (!peakSnapshot) {
+        const requested = window.location.hash.replace(/^#\/?/, '').split('?')[0];
+        setPeakHandoffStarted(requested === 'peak-handoff' && readPeakHandoff());
+      }
       setActive(moduleFromLocation(availableModules));
       const route = parseTableRoute(window.location.hash);
       setTableQuery(route.query);
@@ -1662,11 +1754,19 @@ function Workbench() {
       window.removeEventListener('popstate', onHistory);
       window.removeEventListener('hashchange', onHistory);
     };
-  }, [availableModules]);
+  }, [availableModules, peakSnapshot]);
 
   useEffect(() => {
     const requested = window.location.hash.replace(/^#\/?/, '').split('?')[0] || 'dashboard';
     if (!peakSnapshot) {
+      if (peakHandoffStarted) {
+        if (requested !== 'peak-handoff') window.history.replaceState(null, '', '#peak-handoff');
+        setActive('dashboard');
+        setTableQuery('');
+        setTableFilters({});
+        setOpen(false);
+        return;
+      }
       if (requested !== 'dashboard') window.history.replaceState(null, '', '#dashboard');
       setActive('dashboard');
       setTableQuery('');
@@ -1680,11 +1780,27 @@ function Workbench() {
     setTableQuery('');
     setTableFilters({});
     setOpen(false);
-  }, [active, availableModules, peakSnapshot]);
+  }, [active, availableModules, peakHandoffStarted, peakSnapshot]);
 
   useEffect(() => {
-    document.title = peakMode || peakHandoffStarted ? `${m.th} | Siam ERP` : 'ภาพรวมธุรกิจ | Siam ERP';
+    document.title = peakHandoffStarted && !peakMode ? 'นำข้อมูล PEAK | Siam ERP' : peakMode ? `${m.th} | Siam ERP` : 'ภาพรวมธุรกิจ | Siam ERP';
   }, [m.th, peakHandoffStarted, peakMode]);
+
+  useEffect(() => {
+    if (!peakHandoffStarted || peakSnapshot) return;
+    const checkHandoff = () => {
+      if (!readPeakHandoff()) {
+        setPeakHandoffStarted(false);
+        if (window.location.hash.replace(/^#\/?/, '').split('?')[0] === 'peak-handoff') window.history.replaceState(null, '', '#dashboard');
+      }
+    };
+    const timer = window.setInterval(checkHandoff, 30_000);
+    document.addEventListener('visibilitychange', checkHandoff);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', checkHandoff);
+    };
+  }, [peakHandoffStarted, peakSnapshot]);
 
   useEffect(() => {
     try { localStorage.setItem(COLLAPSED_KEY, String(collapsed)); } catch { /* preference storage is optional */ }
@@ -1739,11 +1855,13 @@ function Workbench() {
 
   const startPeakHandoff = () => {
     rememberPeakHandoff();
+    if (window.location.hash.replace(/^#\/?/, '').split('?')[0] !== 'peak-handoff') window.history.pushState(null, '', '#peak-handoff');
     setPeakHandoffStarted(true);
   };
 
   const resetPeakHandoff = () => {
     forgetPeakHandoff();
+    if (window.location.hash.replace(/^#\/?/, '').split('?')[0] === 'peak-handoff') window.history.replaceState(null, '', '#dashboard');
     setPeakHandoffStarted(false);
   };
 
@@ -1764,6 +1882,7 @@ function Workbench() {
       <PeakHandoffWorkspace
         lastPeakMeta={lastPeakMeta}
         storageIssueText={storageIssueText}
+        onOpenPeak={startPeakHandoff}
         onImport={() => setPeakImportOpen(true)}
         onBack={resetPeakHandoff} />
       <JsonImportDialog
@@ -1774,90 +1893,15 @@ function Workbench() {
   }
 
   if (!peakSnapshot) {
-    return (
-      <main className="grid min-h-screen bg-slate-950 text-white lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.72fr)]">
-        <section className="flex flex-col px-5 py-5 sm:px-9 sm:py-7 lg:min-h-screen lg:px-14 lg:py-10 xl:px-20" aria-label="Siam ERP">
-          <div className="flex items-center">
-            <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-600 text-base font-bold shadow-[0_12px_30px_-16px_rgba(37,99,235,0.9)]">ส</span>
-              <div><p className="text-[15px] font-semibold">Siam ERP</p><p className="text-[12px] text-slate-400">ภาพรวมผู้บริหาร</p></div>
-            </div>
-          </div>
-          <div className="mt-10 max-w-2xl pb-8 sm:mt-16 lg:my-auto lg:py-12">
-            <h1 className="text-balance text-[clamp(2.35rem,5vw,4.8rem)] font-semibold leading-[1.04] tracking-[-0.04em]">ภาพรวมล่าสุด</h1>
-            <p className="mt-4 max-w-[45ch] text-[15px] leading-6 text-slate-300">เห็นสถานะทันทีหลังเข้าใช้งาน</p>
-
-            <section className="mt-10 max-w-2xl border-y border-slate-800 sm:mt-12" aria-labelledby="peak-last-update-title">
-              <div className="py-6 sm:py-7">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <HistoryIcon className="h-4 w-4 text-slate-400" aria-hidden="true" />
-                  <h2 id="peak-last-update-title" className="text-[12px] font-medium text-slate-400">ข้อมูล PEAK</h2>
-                  {lastPeakFreshness ? <span className={cx('rounded-md px-2 py-1 text-[11px] font-semibold', lastPeakFreshness.status === 'fresh' ? 'bg-emerald-400/10 text-emerald-300' : lastPeakFreshness.status === 'aging' ? 'bg-amber-400/10 text-amber-300' : 'bg-rose-400/10 text-rose-300')}>{lastPeakFreshness.label}</span> : null}
-                </div>
-                {lastPeakMeta ? <>
-                  <p className="mt-3 text-[clamp(1.8rem,4vw,3.25rem)] font-semibold leading-none tracking-[-0.03em] text-white">ถึง {dateTH(lastPeakMeta.asOf.slice(0, 10))}</p>
-                  <p className="mt-3 text-[13px] tabular-nums text-slate-400">ตรวจล่าสุด <time dateTime={lastPeakMeta.capturedAt}>{peakStamp(lastPeakMeta.capturedAt)}</time></p>
-                </> : <>
-                  <p className="mt-3 text-[clamp(1.8rem,4vw,3.25rem)] font-semibold leading-none tracking-[-0.03em] text-white">ยังไม่มีประวัติ</p>
-                  <p className="mt-3 text-[13px] text-slate-400">สถานะจะปรากฏหลังตรวจครั้งแรก</p>
-                </>}
-              </div>
-              <div className="flex min-h-12 flex-wrap items-center justify-between gap-x-5 border-t border-slate-800 py-2 text-[12px] text-slate-400">
-                <span>เว็บล่าสุด <time className="ml-1 tabular-nums text-slate-200" dateTime={__BUILD_AT__}>{peakStamp(__BUILD_AT__)}</time></span>
-                {lastPeakMeta ? <button type="button" onClick={() => setConfirmClearHistory(true)} className="inline-flex min-h-11 min-w-11 items-center font-medium underline decoration-slate-700 underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400">ล้างประวัติ</button> : null}
-              </div>
-            </section>
-          </div>
-        </section>
-
-        <section className="flex items-start justify-center bg-slate-50 px-5 py-8 text-slate-950 sm:px-8 sm:py-12 lg:items-center" aria-labelledby="peak-gate-title">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-[0_20px_60px_-36px_rgba(15,23,42,0.42)] sm:p-8">
-            <div className="flex items-start gap-3">
-              {lastPeakMeta ?
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><CheckCircle2Icon className="h-5 w-5" /></span> :
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700"><HistoryIcon className="h-5 w-5" /></span>}
-              <div className="min-w-0 flex-1">
-                <h2 id="peak-gate-title" className="text-[22px] font-semibold tracking-[-0.025em]">สถานะ PEAK</h2>
-                <p className="mt-1 text-[13px] text-slate-500">{lastPeakMeta ? 'มีประวัติล่าสุดแล้ว' : 'ยังไม่เคยตรวจ'}</p>
-              </div>
-            </div>
-
-            {lastPeakMeta ?
-            <dl className="mt-6 divide-y divide-slate-200 border-y border-slate-200 text-[13px]">
-                <div className="flex items-center justify-between gap-4 py-3">
-                  <dt className="text-slate-500">ข้อมูลถึง</dt>
-                  <dd className="font-semibold text-slate-950">{dateTH(lastPeakMeta.asOf.slice(0, 10))}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-4 py-3">
-                  <dt className="text-slate-500">ตรวจล่าสุด</dt>
-                  <dd className="text-right font-medium tabular-nums text-slate-950">{peakStamp(lastPeakMeta.capturedAt)}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-4 py-3">
-                  <dt className="text-slate-500">ตัวเลข</dt>
-                  <dd className="inline-flex items-center gap-1.5 font-medium text-slate-700"><LockKeyholeIcon className="h-4 w-4" />ล็อก</dd>
-                </div>
-              </dl> :
-            <div className="mt-6 border-y border-slate-200 py-5">
-                <p className="text-[14px] font-medium text-slate-900">เปิด PEAK เพื่อตรวจข้อมูลล่าสุด</p>
-              </div>}
-
-            {peakSessionEnded === 'idle' ?
-            <p className="mt-3 text-[12px] text-amber-800" role="status">เซสชันหมดเวลา · เวลาล่าสุดยังอยู่</p> : null}
-
-            <div className="mt-6 grid gap-2 sm:grid-cols-2">
-              <a href={PEAK_HOME_URL} target="_blank" rel="noreferrer" onClick={startPeakHandoff} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-[0_10px_24px_-14px_rgba(29,78,216,0.9)] transition-[background-color,box-shadow] hover:bg-blue-800 hover:shadow-[0_12px_26px_-14px_rgba(29,78,216,0.95)] active:bg-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">เปิด PEAK</a>
-              <button type="button" onClick={() => setPeakImportOpen(true)} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800 hover:border-slate-400 hover:bg-slate-50 active:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2">มีไฟล์แล้ว</button>
-            </div>
-            {storageIssueText ? <div className="mt-4 flex items-start gap-2 text-[12px] leading-5 text-rose-700" role="alert">
-              <AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{storageIssueText}</span>
-            </div> : <div className="mt-4 flex items-center gap-2 text-[12px] text-slate-500">
-              <ShieldCheckIcon className="h-4 w-4 shrink-0 text-emerald-600" />
-              <span>แดชบอร์ดอยู่แท็บนี้ · ตัวเลขไม่ถูกเก็บถาวร</span>
-            </div>}
-          </div>
-        </section>
-
+    return <>
+        <PeakAccessGate
+          lastPeakMeta={lastPeakMeta}
+          storageIssueText={storageIssueText}
+          sessionEnded={peakSessionEnded === 'idle'}
+          focusVersion={gateFocusVersion}
+          onOpenPeak={startPeakHandoff}
+          onImport={() => setPeakImportOpen(true)}
+          onClearHistory={() => setConfirmClearHistory(true)} />
         <JsonImportDialog
           open={peakImportOpen}
           onImport={importPeakData}
@@ -1867,16 +1911,15 @@ function Workbench() {
           title="ล้างเวลาล่าสุด?"
           description="ลบเฉพาะวันที่ที่จำไว้ ไม่มีผลต่อไฟล์ PEAK"
           confirmLabel="ล้างเวลา"
-          onConfirm={() => actions.clearPeakHistory()}
+          onConfirm={() => { actions.clearPeakHistory(); setGateFocusVersion((value) => value + 1); }}
           onClose={() => setConfirmClearHistory(false)} />
-      </main>
-    );
+      </>;
   }
 
 
   return (
     <div className="flex min-h-screen w-full bg-slate-50 text-slate-900">
-      <button type="button" tabIndex={open ? -1 : undefined} aria-hidden={open || undefined} onClick={() => document.getElementById('main-content')?.focus()} className="fixed left-3 top-3 z-[100] -translate-y-20 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-slate-950 shadow-lg focus:translate-y-0">ข้ามไปเนื้อหา</button>
+      <SkipToMainButton disabled={open} />
       <aside className={cx('sticky top-0 hidden h-screen shrink-0 flex-col border-r border-slate-800 bg-slate-950 lg:flex', collapsed ? 'w-[72px]' : 'w-[260px]')}>
         {brand(collapsed)}
         <Nav active={active} collapsed={collapsed} onPick={go} modules={availableModules} groups={availableGroups} />
@@ -1924,7 +1967,7 @@ function Workbench() {
           <div className="min-w-0 flex-1">
             <h1 ref={pageTitleRef} tabIndex={-1} className="truncate text-[16px] font-semibold tracking-[-0.02em] text-slate-950 outline-none lg:text-[18px]">{m.th}</h1>
             <p className={cx('max-w-[72ch] truncate text-[12px] text-slate-500', m.id === 'dashboard' ? 'block' : 'hidden xl:block')}>
-              {m.id === 'dashboard' ? data.peakSnapshot ? `PEAK · ${dateTH(data.peakSnapshot.asOf.slice(0, 10))}` : `ข้อมูล ${dateTH(TODAY)} · ปิดงวด ${dateTH(data.settings.closedThrough)}` : m.desc}
+              {m.id === 'dashboard' ? data.peakSnapshot ? data.peakSnapshot.companyName : `ข้อมูล ${dateTH(TODAY)} · ปิดงวด ${dateTH(data.settings.closedThrough)}` : m.desc}
             </p>
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -1947,7 +1990,7 @@ function Workbench() {
           {peakFreshness.status === 'fresh' ? <CheckCircle2Icon className="h-4 w-4 shrink-0 text-emerald-700" /> : <AlertCircleIcon className="h-4 w-4 shrink-0" />}
           <span className="min-w-0 flex-1"><strong>{peakFreshness.label}</strong> · ข้อมูลถึง {dateTH(peakSnapshot.asOf.slice(0, 10))} · ตรวจ {peakStamp(peakSnapshot.capturedAt)}</span>
           {peakSessionStatus === 'warning' ?
-          <button type="button" data-peak-session-action onClick={() => actions.extendPeakSession()} aria-label="ต่อเวลาการใช้งาน" title="ข้อมูลจะถูกลบเมื่อหมดเวลา" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-amber-300 bg-white/80 px-2.5 font-semibold text-amber-900 shadow-[0_6px_18px_-14px_rgba(120,53,15,0.8)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700">
+          <button type="button" data-peak-session-action onClick={() => actions.extendPeakSession()} aria-label="ต่อเวลาการใช้งาน ข้อมูล PEAK จะถูกลบในไม่เกิน 2 นาที" title="ข้อมูลจะถูกลบเมื่อหมดเวลา" className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-amber-300 bg-white/80 px-2.5 font-semibold text-amber-900 shadow-[0_6px_18px_-14px_rgba(120,53,15,0.8)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700">
               <LockKeyholeIcon className="h-4 w-4" />ต่อเวลา <span aria-hidden="true">· {peakSessionRemainingLabel(peakSessionRemainingMs)}</span>
             </button> :
           <span className="hidden items-center gap-1.5 opacity-75 sm:inline-flex" title="ข้อมูลจะถูกลบหลังไม่ใช้งาน 15 นาที"><LockKeyholeIcon className="h-4 w-4" />ล็อกอัตโนมัติ</span>}
@@ -1984,11 +2027,6 @@ function Workbench() {
           </div>
         </main>
 
-        <footer className="border-t border-slate-200 px-4 py-3 text-[12px] text-slate-500 lg:px-6">
-          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-1.5">
-            <span className={storageIssue ? 'font-medium text-rose-700' : undefined}>{storageIssue ? storageIssueText : `PEAK · ข้อมูลถึง ${dateTH(peakSnapshot.asOf.slice(0, 10))} · ตรวจ ${peakStamp(peakSnapshot.capturedAt)}`}</span>
-          </div>
-        </footer>
       </div>
 
       <div className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(92vw,360px)] flex-col gap-2" role="status" aria-live="polite">

@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { seed } from './data';
 import type { PeakSnapshot } from './data';
 import {
-  PEAK_IDLE_TIMEOUT_MS, PEAK_IDLE_WARNING_MS, demoDataForStorage, isAppData, isPeakSessionDeadline,
-  isPeakSnapshotMeta, peakMetaFromSnapshot, peakSessionRemainingLabel, peakSessionStatus
+  PEAK_IDLE_TIMEOUT_MS, PEAK_IDLE_WARNING_MS, PEAK_SESSION_DEADLINE_KEY, PEAK_SESSION_KEY,
+  clearPrivateSessionStorage, demoDataForStorage, isAppData, isPeakSessionDeadline, isPeakSnapshotMeta,
+  peakMetaFromSnapshot, peakSessionRemainingLabel, peakSessionStatus
 } from './store';
 
 describe('browser storage boundary', () => {
@@ -56,4 +57,46 @@ describe('browser storage boundary', () => {
     expect(peakSessionRemainingLabel(61_001)).toBe('1:02');
     expect(peakSessionRemainingLabel(-1)).toBe('0:00');
   });
+
+  it('removes and verifies both private session keys', () => {
+    const values = new Map<string, string>([
+      [PEAK_SESSION_KEY, 'session-value'],
+      [PEAK_SESSION_DEADLINE_KEY, 'deadline-value']
+    ]);
+    const storage = {
+      removeItem: vi.fn((key: string) => values.delete(key)),
+      getItem: vi.fn((key: string) => values.get(key) ?? null)
+    };
+
+    expect(clearPrivateSessionStorage(storage)).toBe(true);
+    expect(storage.removeItem).toHaveBeenCalledWith(PEAK_SESSION_KEY);
+    expect(storage.removeItem).toHaveBeenCalledWith(PEAK_SESSION_DEADLINE_KEY);
+    expect(storage.getItem).toHaveBeenCalledWith(PEAK_SESSION_KEY);
+    expect(storage.getItem).toHaveBeenCalledWith(PEAK_SESSION_DEADLINE_KEY);
+  });
+
+  it.each([PEAK_SESSION_KEY, PEAK_SESSION_DEADLINE_KEY])(
+    'reports failure for %s while still attempting both private keys',
+    (failedKey) => {
+      const values = new Map<string, string>([
+        [PEAK_SESSION_KEY, 'session-value'],
+        [PEAK_SESSION_DEADLINE_KEY, 'deadline-value']
+      ]);
+      const storage = {
+        removeItem: vi.fn((key: string) => {
+          if (key === failedKey) throw new Error('storage unavailable');
+          values.delete(key);
+        }),
+        getItem: vi.fn((key: string) => values.get(key) ?? null)
+      };
+
+      expect(clearPrivateSessionStorage(storage)).toBe(false);
+      expect(storage.removeItem).toHaveBeenCalledWith(PEAK_SESSION_KEY);
+      expect(storage.removeItem).toHaveBeenCalledWith(PEAK_SESSION_DEADLINE_KEY);
+      expect(storage.getItem).toHaveBeenCalledWith(PEAK_SESSION_KEY);
+      expect(storage.getItem).toHaveBeenCalledWith(PEAK_SESSION_DEADLINE_KEY);
+      const otherKey = failedKey === PEAK_SESSION_KEY ? PEAK_SESSION_DEADLINE_KEY : PEAK_SESSION_KEY;
+      expect(values.has(otherKey)).toBe(false);
+    }
+  );
 });

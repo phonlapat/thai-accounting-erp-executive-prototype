@@ -14,7 +14,7 @@ A public prototype release is acceptable only when all of the following pass:
 ## Operator workflow
 
 1. Open the public app. Confirm that no financial values or demo records are visible.
-2. Select **เลือก snapshot PEAK** and choose the private schema-v3 JSON file, or ask Codex to inspect the signed-in PEAK account and load it manually. Confirm the company and capture time.
+2. Select **เลือกไฟล์** and choose the private Siam ERP schema-v3 JSON file, or ask Codex to inspect the signed-in PEAK account and prepare it manually. Confirm the company and capture time.
 3. Treat all PEAK values as a read-only review snapshot. Follow any visible reconciliation or staleness warning before making a business decision.
 4. Select **ออก** and confirm **ออกและลบ** before leaving a trusted device. Closing the tab also ends the private snapshot session; if the tab is left open, the app warns before locking and deleting the snapshot after 15 minutes without activity.
 
