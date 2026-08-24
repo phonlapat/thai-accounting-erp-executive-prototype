@@ -30,7 +30,7 @@ export function Badge({ value }: {value: string;}) {
 }
 
 export function Button({
-  children, onClick, variant = 'ghost', size = 'md', icon: Icon, disabled, className, ariaLabel, title, buttonRef
+  children, onClick, variant = 'ghost', size = 'md', icon: Icon, disabled, className, ariaLabel, ariaDescribedby, ariaInvalid, title, buttonRef
 
 
 
@@ -39,7 +39,7 @@ export function Button({
 
 
 
-}: {children?: React.ReactNode;onClick?: () => void;variant?: 'primary' | 'ghost' | 'danger' | 'dangerSolid';size?: 'sm' | 'md';icon?: React.ComponentType<{className?: string;}>;disabled?: boolean;className?: string;ariaLabel?: string;title?: string;buttonRef?: React.Ref<HTMLButtonElement>;}) {
+}: {children?: React.ReactNode;onClick?: () => void;variant?: 'primary' | 'ghost' | 'danger' | 'dangerSolid';size?: 'sm' | 'md';icon?: React.ComponentType<{className?: string;}>;disabled?: boolean;className?: string;ariaLabel?: string;ariaDescribedby?: string;ariaInvalid?: boolean;title?: string;buttonRef?: React.Ref<HTMLButtonElement>;}) {
   return (
     <button
       ref={buttonRef}
@@ -47,6 +47,8 @@ export function Button({
       onClick={onClick}
       disabled={disabled}
       aria-label={ariaLabel}
+      aria-describedby={ariaDescribedby}
+      aria-invalid={ariaInvalid || undefined}
       title={title}
       className={cx(
         'inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-lg border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
@@ -206,9 +208,9 @@ export function ConfirmDialog({ open, title, description, confirmLabel = 'ยื
 }
 
 function peakImportError(value: unknown): string {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ไม่ใช่ไฟล์ PEAK ที่รองรับ';
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return 'ไม่ใช่ไฟล์สำหรับ Siam ERP';
   const snapshot = value as Record<string, unknown>;
-  if (snapshot.schemaVersion !== 3) return 'รูปแบบไฟล์ PEAK ไม่รองรับ';
+  if (snapshot.schemaVersion !== 3) return 'รูปแบบไฟล์สำหรับ Siam ERP ไม่รองรับ';
   if (snapshot.source !== 'PEAK') return 'ไม่พบแหล่งข้อมูล PEAK';
   if (snapshot.currency !== 'THB') return 'ไฟล์ต้องใช้สกุลเงินบาท (THB)';
   if (typeof snapshot.companyName !== 'string' || !snapshot.companyName.trim()) return 'ไม่พบชื่อกิจการ';
@@ -243,7 +245,9 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   const committingRef = useRef(false);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
+  const [fileError, setFileError] = useState('');
   const [fileName, setFileName] = useState('');
+  const [jsonErrorVisible, setJsonErrorVisible] = useState(false);
   const [reading, setReading] = useState(false);
   const [committing, setCommitting] = useState(false);
   onCloseRef.current = onClose;
@@ -260,7 +264,8 @@ export function JsonImportDialog({ open, onImport, onClose }: {
     }
   }, [draft]);
   const assurance = useMemo(() => validation.snapshot ? peakSnapshotAssurance(validation.snapshot) : undefined, [validation.snapshot]);
-  const shownError = error || validation.error;
+  const shownFileError = fileError || (fileName ? validation.error : undefined);
+  const shownJsonError = !fileName && jsonErrorVisible ? validation.error : undefined;
 
   useEffect(() => {
     if (!open) {
@@ -268,7 +273,9 @@ export function JsonImportDialog({ open, onImport, onClose }: {
       committingRef.current = false;
       setDraft('');
       setError('');
+      setFileError('');
       setFileName('');
+      setJsonErrorVisible(false);
       setReading(false);
       setCommitting(false);
       return;
@@ -312,13 +319,15 @@ export function JsonImportDialog({ open, onImport, onClose }: {
     if (!file) return;
     const request = ++readRequestRef.current;
     if (!file.name.toLocaleLowerCase('en').endsWith('.json') && file.type !== 'application/json') {
-      setError('เลือกไฟล์ .json');
+      setFileError('เลือกไฟล์ Siam ERP นามสกุล .json');
+      setError('');
       setFileName('');
       setDraft('');
       return;
     }
     if (file.size > 1_000_000) {
-      setError('ไฟล์เกิน 1 MB');
+      setFileError('ไฟล์ต้องไม่เกิน 1 MB');
+      setError('');
       setFileName('');
       setDraft('');
       return;
@@ -326,6 +335,8 @@ export function JsonImportDialog({ open, onImport, onClose }: {
     setReading(true);
     setDraft('');
     setFileName(file.name);
+    setFileError('');
+    setJsonErrorVisible(false);
     setError('');
     try {
       const text = await file.text();
@@ -333,7 +344,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
       setDraft(text);
     } catch {
       if (request !== readRequestRef.current || !openRef.current) return;
-      setError('อ่านไฟล์ไม่ได้');
+      setFileError('อ่านไฟล์ไม่ได้ · เลือกไฟล์อีกครั้ง');
       setFileName('');
     } finally {
       if (request === readRequestRef.current && openRef.current) setReading(false);
@@ -342,7 +353,9 @@ export function JsonImportDialog({ open, onImport, onClose }: {
   const commit = () => {
     if (reading || committingRef.current) return;
     if (!validation.snapshot) {
-      setError(validation.error ?? 'เลือกไฟล์ข้อมูล PEAK');
+      if (fileName) setFileError(validation.error ?? 'ไฟล์ไม่ถูกต้อง');
+      else setJsonErrorVisible(true);
+      window.requestAnimationFrame(() => (fileName ? fileButtonRef.current : textareaRef.current)?.focus());
       return;
     }
     committingRef.current = true;
@@ -361,19 +374,20 @@ export function JsonImportDialog({ open, onImport, onClose }: {
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><UploadIcon className="h-5 w-5" /></span>
           <div className="min-w-0 flex-1">
-            <h2 id="json-import-title" className="text-[18px] font-semibold tracking-[-0.02em] text-slate-950">นำข้อมูล PEAK มาแสดง</h2>
+            <h2 id="json-import-title" className="text-[18px] font-semibold tracking-[-0.02em] text-slate-950">นำข้อมูลมาแสดง</h2>
             <p id="json-import-description" className="mt-1 text-[13px] leading-5 text-slate-600">อ่านอย่างเดียว · อยู่ในแท็บนี้</p>
           </div>
           <button type="button" onClick={onClose} aria-label="ปิด" className="-mr-1 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"><XIcon className="h-4 w-4" /></button>
         </div>
         <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={reading ? LoaderCircleIcon : UploadIcon} disabled={reading || committing} className={reading ? '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none' : undefined}>{reading ? 'กำลังอ่าน…' : 'เลือกไฟล์ PEAK'}</Button>
-          <span className="min-w-0 truncate text-[12px] text-slate-500" title={fileName || undefined}>{fileName || 'ไฟล์ .json · สูงสุด 1 MB'}</span>
+          <Button buttonRef={fileButtonRef} onClick={() => fileRef.current?.click()} icon={reading ? LoaderCircleIcon : UploadIcon} disabled={reading || committing} ariaDescribedby={shownFileError ? 'peak-file-error' : 'peak-file-note'} ariaInvalid={Boolean(shownFileError)} className={reading ? '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none' : undefined}>{reading ? 'กำลังอ่าน…' : 'เลือกไฟล์สำหรับ Siam ERP'}</Button>
+          <span id="peak-file-note" className="min-w-0 truncate text-[12px] text-slate-500" title={fileName || undefined}>{fileName || 'ไฟล์ Siam ERP (.json) · สูงสุด 1 MB'}</span>
           <input
             ref={fileRef} type="file" accept="application/json,.json" className="sr-only"
             aria-hidden="true" tabIndex={-1}
             onChange={(event) => { void readFile(event.target.files?.[0]); event.currentTarget.value = ''; }} />
         </div>
+        {shownFileError ? <p id="peak-file-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{shownFileError}</p> : null}
         {validation.snapshot && assurance ? <section className="mt-4 border-y border-slate-200" aria-label="ข้อมูลก่อนเปิด" aria-live="polite">
           <div className="flex items-start gap-2.5 py-3">
             {assurance.status === 'ok' ? <CheckCircle2Icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <AlertTriangleIcon className={cx('mt-0.5 h-4 w-4 shrink-0', assurance.status === 'bad' ? 'text-rose-600' : 'text-amber-600')} />}
@@ -383,7 +397,7 @@ export function JsonImportDialog({ open, onImport, onClose }: {
             </div>
           </div>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-200 py-3 text-[12px] sm:grid-cols-4">
-            <div className="col-span-2"><dt className="text-slate-500">กิจการ</dt><dd className="mt-0.5 truncate font-medium text-slate-900" title={validation.snapshot.companyName}>{validation.snapshot.companyName}</dd></div>
+            <div className="col-span-2"><dt className="text-slate-500">กิจการ</dt><dd className="mt-0.5 break-words font-medium leading-5 text-slate-900">{validation.snapshot.companyName}</dd></div>
             <div><dt className="text-slate-500">ข้อมูลถึง</dt><dd className="mt-0.5 font-medium text-slate-900">{dateTH(validation.snapshot.asOf.slice(0, 10))}</dd><small className="text-[10.5px] text-slate-500">{assurance.freshness.label}</small></div>
             <div><dt className="text-slate-500">ประวัติ</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.historyCount} เดือน{assurance.missingMonths ? ` · ขาด ${assurance.missingMonths} เดือน` : ''}</dd><small className="text-[10.5px] text-slate-500">{assurance.historyRange}</small></div>
             <div><dt className="text-slate-500">แหล่งข้อมูล</dt><dd className="mt-0.5 font-medium text-slate-900">{assurance.sourceCount} หน้า{assurance.agingSources + assurance.staleSources ? ` · ช้า ${assurance.agingSources + assurance.staleSources}` : ''}</dd></div>
@@ -397,14 +411,15 @@ export function JsonImportDialog({ open, onImport, onClose }: {
           <summary className="flex min-h-11 cursor-pointer list-none items-center text-[12px] font-medium text-slate-600 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 [&::-webkit-details-marker]:hidden">วางข้อมูล JSON</summary>
           <label htmlFor="peak-json" className="block text-[12px] font-medium text-slate-700">ข้อมูล JSON</label>
           <textarea
-            ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setError(''); }}
-            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(shownError)} aria-describedby={shownError ? 'peak-json-error' : undefined} disabled={reading || committing}
+            ref={textareaRef} id="peak-json" value={draft} onChange={(event) => { setDraft(event.target.value); setFileName(''); setFileError(''); setError(''); setJsonErrorVisible(false); }} onBlur={() => setJsonErrorVisible(Boolean(draft.trim()))}
+            spellCheck={false} rows={6} placeholder="{ ... }" aria-invalid={Boolean(shownJsonError)} aria-describedby={shownJsonError ? 'peak-json-error' : undefined} disabled={reading || committing}
             className="mt-1.5 w-full resize-y rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-base leading-6 text-slate-900 outline-none focus:border-blue-600 focus:bg-white focus:ring-2 focus:ring-blue-100 disabled:cursor-wait disabled:opacity-60 sm:text-[12px] sm:leading-5" />
         </details>
-        {shownError ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{shownError}</p> : null}
+        {shownJsonError ? <p id="peak-json-error" className="mt-1.5 text-[12px] text-rose-700" role="alert">{shownJsonError}</p> : null}
+        {error ? <p id="peak-import-error" className="mt-2 text-[12px] text-rose-700" role="alert">{error}</p> : null}
         <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button className="w-full sm:w-auto" onClick={onClose} disabled={committing}>ยกเลิก</Button>
-          <Button className={cx('w-full sm:w-auto', committing && '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none')} variant="primary" icon={committing ? LoaderCircleIcon : undefined} disabled={!validation.snapshot || reading || committing || Boolean(shownError)} onClick={commit}>{committing ? 'กำลังแสดง…' : 'แสดงข้อมูล'}</Button>
+          <Button className={cx('w-full sm:w-auto', committing && '[&_svg]:animate-spin motion-reduce:[&_svg]:animate-none')} variant="primary" icon={committing ? LoaderCircleIcon : undefined} disabled={reading || committing} ariaDescribedby={error ? 'peak-import-error' : undefined} onClick={commit}>{committing ? 'กำลังแสดง…' : 'แสดงข้อมูล'}</Button>
         </div>
       </div>
     </div>, document.body
